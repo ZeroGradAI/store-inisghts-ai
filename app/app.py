@@ -9,6 +9,7 @@ import torch
 import sys
 import time
 import logging
+import argparse
 
 # Configure logging
 logging.basicConfig(
@@ -23,6 +24,11 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Import the model inference
 from model.inference import get_model
+
+# Check if we should use a smaller model
+parser = argparse.ArgumentParser(description='Store Insights AI')
+parser.add_argument('--small-model', action='store_true', help='Use a smaller model to avoid memory issues')
+args, unknown = parser.parse_known_args()
 
 # Set page configuration - must be the first Streamlit command
 st.set_page_config(
@@ -45,7 +51,7 @@ header {visibility: hidden;}
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
 # Get the model instance
-model = get_model()
+model = get_model(use_small_model=args.small_model)
 
 # Initialize session state for storing analysis results
 if "gender_demographics_results" not in st.session_state:

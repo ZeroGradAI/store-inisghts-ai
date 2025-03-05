@@ -6,6 +6,7 @@ import re
 from PIL import Image
 import numpy as np
 import logging
+import signal
 
 # Configure logging
 logging.basicConfig(
@@ -16,12 +17,19 @@ logger = logging.getLogger("ModelInference")
 
 # Define model class
 class ModelInference:
-    def __init__(self):
+    def __init__(self, use_small_model=False):
         self.model = None
         self.tokenizer = None
         self.processor = None
         self.is_mock = True
-        self.model_name = "openbmb/MiniCPM-o-2_6"  # Corrected model name with underscore
+        
+        # Use a smaller model if requested
+        if use_small_model:
+            self.model_name = "microsoft/phi-2"  # Smaller model
+            logger.info(f"Using smaller model: {self.model_name}")
+        else:
+            self.model_name = "openbmb/MiniCPM-o-2_6"  # Corrected model name with underscore
+            logger.info(f"Using standard model: {self.model_name}")
         
         # Try to load the model if CUDA is available
         if torch.cuda.is_available():
@@ -30,7 +38,7 @@ class ModelInference:
             logger.info(f"CUDA device name: {torch.cuda.get_device_name(0)}")
             
             try:
-                logger.info(f"Loading MiniCPM-o model...")
+                logger.info(f"Loading model...")
                 self._load_model()
                 self.is_mock = False
                 logger.info(f"Model loaded successfully!")
@@ -51,7 +59,7 @@ class ModelInference:
                 logger.error(f"Torchvision not available. Some image processing features may not work.")
                 raise ImportError("Torchvision is required for model loading. Please install with: pip install torchvision")
             
-            from transformers import AutoModel, AutoTokenizer, AutoProcessor
+            from transformers import AutoModel, AutoModelForCausalLM, AutoTokenizer, AutoProcessor
             
             # First check if the model is available locally
             if os.path.exists(self.model_name) or os.path.exists(os.path.join(os.getcwd(), self.model_name)):
@@ -59,7 +67,7 @@ class ModelInference:
                 local_path = self.model_name if os.path.exists(self.model_name) else os.path.join(os.getcwd(), self.model_name)
                 logger.info(f"Loading model from local path: {local_path}")
                 self.tokenizer = AutoTokenizer.from_pretrained(local_path, trust_remote_code=True)
-                self.model = AutoModel.from_pretrained(
+                self.model = AutoModelForCausalLM.from_pretrained(
                     local_path,
                     device_map="auto",
                     trust_remote_code=True
@@ -69,16 +77,44 @@ class ModelInference:
                 # Try to load from Hugging Face
                 try:
                     logger.info(f"Attempting to load model from Hugging Face: {self.model_name}")
-                    self.tokenizer = AutoTokenizer.from_pretrained(self.model_name, trust_remote_code=True)
-                    self.model = AutoModel.from_pretrained(
-                        self.model_name,
-                        device_map="auto",
-                        trust_remote_code=True
-                    )
-                    self.processor = AutoProcessor.from_pretrained(self.model_name, trust_remote_code=True)
                     
-                    # Log model device information
-                    logger.info(f"Model loaded on device: {next(self.model.parameters()).device}")
+                    # Set a timeout for model loading
+                    class TimeoutError(Exception):
+                        pass
+                    
+                    def timeout_handler(signum, frame):
+                        raise TimeoutError("Model loading timed out")
+                    
+                    # Set the timeout to 5 minutes (300 seconds)
+                    timeout_seconds = 300
+                    logger.info(f"Setting timeout for model loading: {timeout_seconds} seconds")
+                    
+                    # Set the signal handler
+                    signal.signal(signal.SIGALRM, timeout_handler)
+                    signal.alarm(timeout_seconds)
+                    
+                    try:
+                        # Load the model with timeout
+                        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name, trust_remote_code=True)
+                        self.model = AutoModelForCausalLM.from_pretrained(
+                            self.model_name,
+                            device_map="auto",
+                            trust_remote_code=True
+                        )
+                        self.processor = AutoProcessor.from_pretrained(self.model_name, trust_remote_code=True)
+                        
+                        # Cancel the timeout
+                        signal.alarm(0)
+                        
+                        # Log model device information
+                        logger.info(f"Model loaded on device: {next(self.model.parameters()).device}")
+                    except TimeoutError:
+                        logger.error(f"Model loading timed out after {timeout_seconds} seconds")
+                        raise Exception(f"Model loading timed out after {timeout_seconds} seconds")
+                    finally:
+                        # Reset the signal handler
+                        signal.alarm(0)
+                    
                 except Exception as e:
                     # If the specific model is not found, try a fallback model
                     logger.error(f"Error loading model from Hugging Face: {str(e)}")
@@ -86,7 +122,7 @@ class ModelInference:
                     
                     try:
                         self.tokenizer = AutoTokenizer.from_pretrained("microsoft/phi-2", trust_remote_code=True)
-                        self.model = AutoModel.from_pretrained(
+                        self.model = AutoModelForCausalLM.from_pretrained(
                             "microsoft/phi-2",
                             device_map="auto",
                             trust_remote_code=True
@@ -347,9 +383,9 @@ class ModelInference:
 # Singleton instance
 _model_instance = None
 
-def get_model():
+def get_model(use_small_model=False):
     """Get the model instance (singleton pattern)."""
     global _model_instance
     if _model_instance is None:
-        _model_instance = ModelInference()
+        _model_instance = ModelInference(use_small_model)
     return _model_instance 

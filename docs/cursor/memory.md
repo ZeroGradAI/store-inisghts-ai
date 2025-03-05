@@ -143,3 +143,45 @@ When running Streamlit applications in Lightning Studios or other cloud environm
 - Pinned specific versions in requirements.txt: torch==2.6.0, torchvision==0.21.0, torchaudio==2.6.0
 - Added comprehensive logging to show version information
 - Documented the specific versions that work together 
+
+### Issue: Model loading getting stuck
+
+**Problem**: When loading the MiniCPM-o model from Hugging Face, the download sometimes gets stuck at "Loading checkpoint shards: 0%" and never completes.
+
+**Solution**:
+- Added a timeout mechanism for model loading (5 minutes)
+- Created scripts to clear the Hugging Face cache (clear_cache.py and clear_cache.sh)
+- Added an option to use a smaller model (--small-model flag) to avoid memory issues
+- Updated all launcher scripts to support the small model option
+
+### Issue: Memory issues with large models
+
+**Problem**: The MiniCPM-o model is quite large and can cause memory issues on some GPUs, especially when processing large images.
+
+**Solution**:
+- Added an option to use a smaller model (microsoft/phi-2) via the --small-model flag
+- Updated the model loading code to handle both models
+- Added command-line arguments to all launcher scripts to support this option
+- Improved error handling and logging to better diagnose memory issues 
+
+### Issue: Phi-2 model not compatible with .generate() method
+
+**Problem**: When using the Phi-2 model as a fallback, we encountered the error "The current model class (PhiModel) is not compatible with `.generate()`, as it doesn't have a language model head."
+
+**Solution**:
+- Changed the model loading code to use `AutoModelForCausalLM` instead of `AutoModel` for the Phi-2 model
+- Updated all instances where models are loaded to use the appropriate model class based on the model type
+- Added more detailed error handling to provide clearer error messages when model compatibility issues occur
+- Documented the correct model classes to use for different types of models in the codebase
+
+### Issue: Cache clearing script not compatible with Windows
+
+**Problem**: The cache clearing script (clear_cache.py) was designed for Unix-like systems and didn't work properly on Windows due to differences in path handling and process management.
+
+**Solution**:
+- Updated the cache directory paths to be platform-aware using os.path.join
+- Replaced the Unix-specific pkill command with Windows-compatible taskkill for process termination
+- Modified the subprocess handling to use shell=True on Windows for proper command execution
+- Added support for the --small-model flag to be passed through to the restarted application
+- Added a --no-restart option to allow clearing the cache without automatically restarting the application
+- Improved logging to show platform-specific paths and commands 

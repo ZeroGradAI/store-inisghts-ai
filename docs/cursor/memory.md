@@ -279,3 +279,20 @@ When running Streamlit applications in Lightning Studios or other cloud environm
 - Updated the initialization logic to set `is_mock` based on CUDA availability initially
 - Added explicit setting of `is_mock` to `True` when model loading fails
 - Made the code more robust by ensuring the `is_mock` flag is correctly set in all code paths 
+
+### 2025-03-05: Fixed "Index is out of bounds" Error with MiniCPM-V
+**Problem**: When using the MiniCPM-V model for image analysis, we encountered the error "index is out of bounds for dimension with size 0" during the model's chat method call. This error occurred in the rotary position embeddings calculation within the model's internal implementation.
+
+**Solution**:
+- Updated the model loading code to use more specific parameters:
+  - Changed from `torch.bfloat16` to `torch.float16` for better compatibility
+  - Added `low_cpu_mem_usage=True` and `use_cache=True` parameters
+  - Improved device handling with explicit device assignment
+- Enhanced the image processing method:
+  - Added proper image resizing to a maximum dimension of 768 pixels
+  - Used LANCZOS resampling for better quality
+- Implemented a fallback mechanism in the `_generate_response` method:
+  - Added specific error handling for IndexError
+  - Created an alternative generation approach using the model's `generate` method directly
+  - Set appropriate generation parameters (max_new_tokens, top_p, top_k, temperature)
+- Improved error logging throughout the code to better diagnose issues 

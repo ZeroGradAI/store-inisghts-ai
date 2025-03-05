@@ -73,21 +73,30 @@ class ModelInference:
             # Load the model with trust_remote_code=True and other required parameters
             logger.info(f"Loading model from Hugging Face: {self.model_name}")
             
-            # Load the model
-            model = AutoModel.from_pretrained(
-                self.model_name,
-                trust_remote_code=True,
-                torch_dtype=torch.bfloat16
-            )
+            # Set device
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            logger.info(f"Using device: {device}")
             
-            # Move model to GPU
-            model = model.to(device='cuda', dtype=torch.bfloat16)
-            
-            # Load tokenizer
+            # Load tokenizer first
+            logger.info("Loading tokenizer...")
             tokenizer = AutoTokenizer.from_pretrained(
                 self.model_name,
                 trust_remote_code=True
             )
+            
+            # Load the model with specific parameters to avoid the index error
+            logger.info("Loading model...")
+            model = AutoModel.from_pretrained(
+                self.model_name,
+                trust_remote_code=True,
+                torch_dtype=torch.float16 if device == "cuda" else torch.float32,
+                low_cpu_mem_usage=True,
+                use_cache=True
+            )
+            
+            # Move model to device
+            logger.info(f"Moving model to {device}...")
+            model = model.to(device)
             
             # Set model to evaluation mode
             model.eval()
@@ -99,16 +108,17 @@ class ModelInference:
             else:
                 logger.info("Model loaded on CPU")
             
+            # Store model and tokenizer
             self.model = model
             self.tokenizer = tokenizer
-            self.is_mock = False
             
-            logger.info("Model loaded successfully")
+            logger.info("Model and tokenizer loaded successfully")
             
         except Exception as e:
             logger.error(f"Error loading model: {str(e)}")
+            logger.error("Stack trace:", exc_info=True)
             self.is_mock = True
-            logger.warning("Falling back to mock data.")
+            raise
     
     def _process_image(self, image):
         """Process the image for the MiniCPM-V model."""
@@ -130,6 +140,23 @@ class ModelInference:
             elif image.mode != "RGB":
                 logger.info(f"Converting image from {image.mode} to RGB")
                 image = image.convert("RGB")
+            
+            # For MiniCPM-V, we need to resize the image to a reasonable size
+            # but not too large to avoid memory issues
+            width, height = image.size
+            max_size = 768  # Maximum dimension
+            
+            if width > max_size or height > max_size:
+                # Calculate new dimensions while preserving aspect ratio
+                if width > height:
+                    new_width = max_size
+                    new_height = int(height * (max_size / width))
+                else:
+                    new_height = max_size
+                    new_width = int(width * (max_size / height))
+                
+                logger.info(f"Resizing image from {width}x{height} to {new_width}x{new_height}")
+                image = image.resize((new_width, new_height), Image.LANCZOS)
             
             logger.info(f"Image processed successfully: {image.size}")
             return image
@@ -168,33 +195,77 @@ class ModelInference:
             # Create the message format expected by the model
             msgs = [{'role': 'user', 'content': prompt}]
             
-            # Set parameters for the model's chat method
-            params = {
-                'sampling': True,
-                'temperature': 0.7
-            }
-            
-            # Generate the response using the model's chat method
-            # The MiniCPM-V model expects the image as a separate parameter
-            response, context, _ = self.model.chat(
-                image=processed_image,
-                msgs=msgs,
-                context=None,
-                tokenizer=self.tokenizer,
-                **params
-            )
-            
-            # Log the time taken and a preview of the response
-            elapsed_time = time.time() - start_time
-            logger.info(f"Response generated in {elapsed_time:.2f} seconds")
-            logger.info(f"Response preview: {response[:100]}...")
-            
-            return response
-            
+            try:
+                # Set parameters for the model's chat method
+                params = {
+                    'sampling': True,
+                    'temperature': 0.7,
+                    'max_new_tokens': 512,  # Limit response length
+                    'top_p': 0.9,
+                    'top_k': 40
+                }
+                
+                # Generate the response using the model's chat method
+                # The MiniCPM-V model expects the image as a separate parameter
+                response, context, _ = self.model.chat(
+                    image=processed_image,
+                    msgs=msgs,
+                    context=None,
+                    tokenizer=self.tokenizer,
+                    **params
+                )
+                
+                # Log the time taken and a preview of the response
+                elapsed_time = time.time() - start_time
+                logger.info(f"Response generated in {elapsed_time:.2f} seconds")
+                logger.info(f"Response preview: {response[:100]}...")
+                
+                return response
+                
+            except IndexError as e:
+                # Handle the specific "index is out of bounds" error
+                logger.error(f"Error generating response: {str(e)}")
+                logger.error("Stack trace:", exc_info=True)
+                
+                # Try an alternative approach with direct model generation
+                logger.info("Attempting alternative generation method...")
+                
+                try:
+                    # Prepare inputs for direct model generation
+                    inputs = self.tokenizer(prompt, return_tensors="pt").to("cuda")
+                    
+                    # Generate with simpler parameters
+                    with torch.no_grad():
+                        outputs = self.model.generate(
+                            **inputs,
+                            max_new_tokens=512,
+                            do_sample=True,
+                            temperature=0.7,
+                            top_p=0.9,
+                            top_k=40
+                        )
+                    
+                    # Decode the generated text
+                    response = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+                    
+                    logger.info(f"Alternative generation successful")
+                    logger.info(f"Response preview: {response[:100]}...")
+                    
+                    return response
+                    
+                except Exception as inner_e:
+                    logger.error(f"Alternative generation failed: {str(inner_e)}")
+                    return f"Error generating response: {str(e)}"
+                
+            except Exception as e:
+                logger.error(f"Error generating response: {str(e)}")
+                logger.error("Stack trace:", exc_info=True)
+                return f"Error generating response: {str(e)}"
+                
         except Exception as e:
-            logger.error(f"Error generating response: {str(e)}")
+            logger.error(f"Error in _generate_response: {str(e)}")
             logger.error("Stack trace:", exc_info=True)
-            return f"Error generating response: {str(e)}"
+            return f"Error: {str(e)}"
 
     def analyze_gender_demographics(self, image):
         """Analyze gender demographics in the image using the MiniCPM-V model."""

@@ -62,6 +62,27 @@ For production use, deploy to an environment with GPU support, such as:
 - AWS EC2 with GPU
 - Azure ML
 
+### Running on Lightning Studios
+
+To run the application on Lightning Studios:
+
+1. Clone the repository to your Lightning Studios workspace
+2. Install dependencies:
+   ```
+   pip install -r requirements.txt
+   ```
+3. Make the launcher script executable:
+   ```
+   chmod +x launch.py
+   ```
+4. Run the launcher script:
+   ```
+   python launch.py
+   ```
+5. Access the application using the External URL provided by Lightning Studios
+   - If the External URL shows a blank page, try accessing it with `/app` appended to the URL
+   - For example: `http://18.117.245.113:8501/app`
+
 ## License
 
 MIT

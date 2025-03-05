@@ -209,3 +209,24 @@ def main():
 
 if __name__ == "__main__":
     main() 
+
+# Add this section to the end of the file to properly configure Streamlit for external access
+# This will be used when running on Lightning Studios or other cloud environments
+if os.environ.get('LIGHTNING_APP_STATE_URL'):
+    # We're running in Lightning Studios
+    import subprocess
+    import sys
+    
+    # Kill any existing Streamlit processes
+    subprocess.run(["pkill", "-f", "streamlit"])
+    
+    # Launch Streamlit with the correct server settings
+    subprocess.run([
+        "streamlit", "run", 
+        os.path.abspath(__file__),
+        "--server.port=8501", 
+        "--server.address=0.0.0.0",
+        "--server.headless=true",
+        "--server.enableCORS=false",
+        "--server.enableXsrfProtection=false"
+    ]) 

@@ -42,7 +42,7 @@ def show():
     if uploaded_file is not None:
         # Display the uploaded image
         image = Image.open(uploaded_file)
-        st.image(image, caption="Uploaded Image", use_container_width=True)
+        st.image(image, caption="Uploaded Image", width=700)
         
         # Analyze button
         if st.button("Analyze Gender Demographics"):
@@ -63,7 +63,7 @@ def show():
                     title="Customer Gender Distribution",
                     color_discrete_sequence=["#3366CC", "#FF6B6B"]
                 )
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig)
             
             with col2:
                 st.subheader("Analysis Results")
@@ -87,11 +87,11 @@ def show():
                 for i, sample_image in enumerate(sample_images[:3]):  # Show up to 3 samples
                     with sample_cols[i]:
                         img_path = os.path.join(sample_dir, sample_image)
-                        st.image(img_path, caption=f"Sample {i+1}", use_container_width=True)
-                        if st.button(f"Use Sample {i+1}", key=f"sample_{i}"):
+                        st.image(img_path, caption=f"Sample {i+1}", width=220)
+                        if st.button(f"Use Sample {i+1}", key=f"sample_btn_{i}"):
                             # Load and analyze the sample image
                             image = Image.open(img_path)
-                            st.image(image, caption=f"Sample {i+1}", use_container_width=True)
+                            st.image(image, caption=f"Sample {i+1}", width=700)
                             
                             # Analyze the image
                             results = analyze_gender_demographics(image)
@@ -110,7 +110,7 @@ def show():
                                     title="Customer Gender Distribution",
                                     color_discrete_sequence=["#3366CC", "#FF6B6B"]
                                 )
-                                st.plotly_chart(fig, use_container_width=True)
+                                st.plotly_chart(fig)
                             
                             with col2:
                                 st.subheader("Analysis Results")

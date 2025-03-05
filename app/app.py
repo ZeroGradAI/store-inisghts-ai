@@ -102,7 +102,7 @@ def display_insights():
                 title="Customer Gender Distribution",
                 color_discrete_sequence=["#3366CC", "#FF6B6B"]
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig)
             
             # Display insights
             st.markdown(f"**AI Insights:** {results['insights']}")
@@ -123,7 +123,7 @@ def display_insights():
                 marker_color=["#4CAF50", "#F44336"]
             ))
             fig.update_layout(title_text="Counter Status")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig)
             
             # Display insights
             st.markdown(f"**AI Recommendations:** {results['recommendations']}")

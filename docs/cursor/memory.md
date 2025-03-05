@@ -64,3 +64,53 @@ When running Streamlit applications in Lightning Studios or other cloud environm
 - Created a conditional model loading system that checks for CUDA availability
 - Implemented mock data generation for non-GPU environments
 - Added clear UI indicators to show when using simulated data vs. real model inference 
+
+## Lightning Studios Compatibility Issues
+
+### Issue: Streamlit version compatibility
+
+**Problem**: The Lightning Studios environment uses an older version of Streamlit that doesn't support some parameters we used in our code.
+
+**Solution**:
+- Replace `use_container_width=True` with `width=700` in `st.image()` calls
+- Use more conservative parameter values that are compatible with older Streamlit versions
+- Test the application with the specific Streamlit version available in the deployment environment
+
+### Issue: Model loading from Hugging Face
+
+**Problem**: The MiniCPM-o model was not available on Hugging Face or couldn't be accessed from Lightning Studios.
+
+**Solution**:
+- Implement robust error handling for model loading
+- Add a fallback mechanism to try alternative models (like microsoft/phi-2)
+- Ensure the mock data generation works well as a fallback
+- Add clear UI indicators to show when using simulated data
+- Consider downloading the model weights manually and storing them locally in the deployment environment
+
+### Issue: CUDA errors in Lightning Studios
+
+**Problem**: Even with GPU available, there were CUDA-related errors when initializing the model.
+
+**Solution**:
+- Add comprehensive error handling around CUDA operations
+- Implement graceful fallback to CPU or mock data when CUDA errors occur
+- Log detailed error messages to help diagnose issues
+- Check CUDA compatibility between the model and the available GPU in Lightning Studios
+
+### Issue: Incorrect model name format
+
+**Problem**: The model name for MiniCPM-o was incorrectly specified as "openbmb/MiniCPM-o-2.6B" (with dot and B), but the correct format is "openbmb/MiniCPM-o-2_6" (with underscore).
+
+**Solution**:
+- Updated the model name to use the correct format with underscore
+- Removed duplicate model inference implementation to avoid confusion
+- Ensured consistent import paths across all files
+
+### Issue: Duplicate model implementation
+
+**Problem**: We had two different model inference implementations in different directories (model/inference.py and app/model/inference.py).
+
+**Solution**:
+- Removed the duplicate implementation in app/model/inference.py
+- Ensured all imports point to the correct model/inference.py file
+- Added proper path handling in the import statements to ensure the correct module is loaded 

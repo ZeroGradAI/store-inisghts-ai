@@ -69,6 +69,12 @@ def show():
                 st.subheader("Analysis Results")
                 st.metric("👨 Men", results["men_count"])
                 st.metric("👩 Women", results["women_count"])
+                
+                # Display products if available
+                if "products" in results:
+                    st.markdown("### Products")
+                    st.markdown(results["products"])
+                
                 st.markdown("### AI Insights")
                 st.markdown(results["insights"])
     else:
@@ -116,6 +122,12 @@ def show():
                                 st.subheader("Analysis Results")
                                 st.metric("👨 Men", results["men_count"])
                                 st.metric("👩 Women", results["women_count"])
+                                
+                                # Display products if available
+                                if "products" in results:
+                                    st.markdown("### Products")
+                                    st.markdown(results["products"])
+                                
                                 st.markdown("### AI Insights")
                                 st.markdown(results["insights"])
         else:

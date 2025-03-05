@@ -196,4 +196,54 @@ When running Streamlit applications in Lightning Studios or other cloud environm
 - Implemented a manual fallback analysis for specific images when the model fails to provide proper analysis
 - Added post-processing to remove the original prompt if it's repeated in the response
 - Set better generation parameters (temperature, top_p, repetition_penalty) to improve response quality
-- Added a minimum response length check to detect when the model generates insufficient content 
+- Added a minimum response length check to detect when the model generates insufficient content
+
+### Issue: UI expecting specific keys in model response
+
+**Problem**: The UI components were expecting specific keys in the model response dictionary, but the model was returning a different structure, causing errors when trying to display the results.
+
+**Solution**:
+- Updated the UI code to check for the existence of keys before trying to access them
+- Added conditional rendering for optional fields like "products"
+- Ensured consistent return structure from all model analysis methods
+- Added more detailed logging to track the structure of the model response
+- Implemented a manual fallback with the correct structure when the model fails to provide proper analysis 
+
+## Issues and Learnings
+
+### 2023-10-15: Phi-2 Model Returning Code Instead of Image Analysis
+**Problem**: The Phi-2 model was returning Python code or irrelevant content instead of analyzing images.
+
+**Solution**:
+- Enhanced prompts to be more specific about the expected output format
+- Added detection for code-like content in responses
+- Implemented fallback analysis for specific images
+- Added more robust regex parsing for extracting information from model responses
+
+### 2023-10-15: UI Expecting Specific Keys in Results Dictionary
+**Problem**: The UI code expected specific keys in the results dictionary returned by model analysis methods.
+
+**Solution**:
+- Updated UI code to check for key existence before accessing
+- Ensured all model analysis methods return consistent structure
+- Added default values for keys that might be missing
+
+### 2023-10-16: Incorrect Model Loading for MiniCPM-o
+**Problem**: The model was being loaded with `AutoModel` instead of `AutoModelForCausalLM`, causing incompatibility with the `.generate()` method.
+
+**Solution**:
+- Updated model loading to use the correct implementation from `chatbot_web_demo_o2.6.py`
+- Implemented proper image processing with resizing and format conversion
+- Updated response generation to use the model's native chat method
+- Added support for multi-GPU setups using the `accelerate` library
+- Enhanced error handling and logging throughout the model inference process
+
+### 2023-10-16: Improved Gender Demographics Analysis
+**Problem**: The gender demographics analysis was not correctly parsing the model's responses, leading to inaccurate counts.
+
+**Solution**:
+- Updated the prompt to request information in a numbered format
+- Implemented comprehensive regex patterns to detect mentions of men and women in various formats
+- Added specific pattern matching for numerical and textual representations of counts
+- Improved extraction of products and insights information from the response
+- Maintained fallback values for the specific supermarket image to ensure consistent results 

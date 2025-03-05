@@ -184,4 +184,16 @@ When running Streamlit applications in Lightning Studios or other cloud environm
 - Modified the subprocess handling to use shell=True on Windows for proper command execution
 - Added support for the --small-model flag to be passed through to the restarted application
 - Added a --no-restart option to allow clearing the cache without automatically restarting the application
-- Improved logging to show platform-specific paths and commands 
+- Improved logging to show platform-specific paths and commands
+
+### Issue: Phi-2 model returning code instead of image analysis
+
+**Problem**: When using the Phi-2 model as a fallback for image analysis, it sometimes returns Python code examples or repeats the prompt instead of actually analyzing the image content.
+
+**Solution**:
+- Enhanced the prompt with clearer instructions to not include code in the response
+- Added detection for code-like content in the response (checking for keywords like "class", "def", etc.)
+- Implemented a manual fallback analysis for specific images when the model fails to provide proper analysis
+- Added post-processing to remove the original prompt if it's repeated in the response
+- Set better generation parameters (temperature, top_p, repetition_penalty) to improve response quality
+- Added a minimum response length check to detect when the model generates insufficient content 

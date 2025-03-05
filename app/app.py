@@ -8,6 +8,14 @@ import plotly.graph_objects as go
 import torch
 import sys
 import time
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger("StoreInsightsApp")
 
 # Add the app directory to the path to import modules
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -176,15 +184,30 @@ def main():
         # App title
         st.markdown("<h2 style='text-align: center; color: white;'>Store Insights AI</h2>", unsafe_allow_html=True)
         
-        # Model status indicator (small and subtle)
-        if not torch.cuda.is_available():
+        # Model status indicator
+        st.markdown("### Model Status")
+        if model.is_mock:
+            st.markdown("<div class='model-status model-status-mock'>Using Simulated Data</div>", unsafe_allow_html=True)
             st.markdown("""
-            <div class="warning-box">
-                <p>⚠️ Using simulated data (No GPU)</p>
+            <div class='card warning-card'>
+                <p>⚠️ The AI model is not available or CUDA is not detected. Using simulated data for demonstration purposes.</p>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown("<div class='model-status model-status-real'>Using Real AI Model</div>", unsafe_allow_html=True)
+            st.markdown(f"""
+            <div class='card success-card'>
+                <p>✅ Using MiniCPM-o model for image analysis.</p>
+                <p>Model: {model.model_name}</p>
+                <p>Device: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU"}</p>
             </div>
             """, unsafe_allow_html=True)
         
+        st.markdown("---")
+        
         # Navigation buttons
+        st.markdown("### Navigation")
+        
         if st.button("📊 Dashboard", key="dashboard_btn"):
             st.session_state.current_page = "dashboard"
             st.rerun()
@@ -208,6 +231,12 @@ def main():
         queue_management.show()
 
 if __name__ == "__main__":
+    logger.info("Starting Store Insights AI application")
+    logger.info(f"CUDA available: {torch.cuda.is_available()}")
+    if torch.cuda.is_available():
+        logger.info(f"CUDA device: {torch.cuda.get_device_name(0)}")
+    logger.info(f"Using mock data: {model.is_mock}")
+    
     main() 
 
 # Add this section to the end of the file to properly configure Streamlit for external access

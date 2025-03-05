@@ -124,3 +124,22 @@ When running Streamlit applications in Lightning Studios or other cloud environm
 - Updated the model loading code to explicitly check for torchvision availability
 - Added clear error messages to guide installation when dependencies are missing
 - Documented the dependency in the project documentation 
+
+### Issue: MiniCPM-o processor requires both image and text inputs
+
+**Problem**: The error "MiniCPMOProcessor.__call__() missing 1 required positional argument: 'text'" occurred because the processor requires both image and text inputs.
+
+**Solution**:
+- Updated the `_process_image()` method to accept a prompt parameter
+- Modified the code to pass both the image and text to the processor
+- Added a fallback to use a dummy prompt when no prompt is provided
+- Added detailed logging to track the image processing flow
+
+### Issue: Torch version compatibility
+
+**Problem**: There were version conflicts between torch, torchvision, and torchaudio.
+
+**Solution**:
+- Pinned specific versions in requirements.txt: torch==2.6.0, torchvision==0.21.0, torchaudio==2.6.0
+- Added comprehensive logging to show version information
+- Documented the specific versions that work together 

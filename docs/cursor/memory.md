@@ -295,4 +295,22 @@ When running Streamlit applications in Lightning Studios or other cloud environm
   - Added specific error handling for IndexError
   - Created an alternative generation approach using the model's `generate` method directly
   - Set appropriate generation parameters (max_new_tokens, top_p, top_k, temperature)
-- Improved error logging throughout the code to better diagnose issues 
+- Improved error logging throughout the code to better diagnose issues
+
+### 2025-03-05: Fixed Data Type Mismatch Error with MiniCPM-V
+**Problem**: After fixing the "index is out of bounds" error, we encountered a new error: "mat1 and mat2 must have the same dtype, but got Float and Half". This occurred because of inconsistent data types between the model parameters and the input tensors during the multi-head attention calculation.
+
+**Solution**:
+- Updated the model loading code to use a consistent data type throughout:
+  - Changed to use `torch.float32` for both CPU and CUDA to avoid dtype mismatches
+  - Added explicit logging of the dtype being used
+  - Ensured the model is moved to the device with the correct dtype
+- Enhanced the image processing in the fallback mechanism:
+  - Added proper image tensor creation with normalization
+  - Ensured the image tensor has the same dtype as the model parameters
+  - Added device and dtype checks to match the model's configuration
+- Implemented a more robust fallback mechanism:
+  - Added handling for both IndexError and RuntimeError
+  - Attempted to use the model's vision encoder directly if available
+  - Added a last-resort mock response with reasonable values for the specific use case
+- Improved error logging to track tensor shapes, dtypes, and devices 

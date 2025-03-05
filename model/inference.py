@@ -21,7 +21,7 @@ class ModelInference:
         self.model = None
         self.tokenizer = None
         self.processor = None
-        self.is_mock = True
+        self.is_mock = False
         
         # Use a smaller model if requested
         if use_small_model:
@@ -69,7 +69,7 @@ class ModelInference:
         from transformers import AutoModel, AutoTokenizer
         
         try:
-            # Remove the signal-based timeout which doesn't work in non-main threads
+            # Load the model with trust_remote_code=True and other required parameters
             logger.info(f"Loading model from Hugging Face: {self.model_name}")
             
             # Check if we have multiple GPUs
@@ -80,7 +80,15 @@ class ModelInference:
                     
                     # Load the model with accelerate
                     with init_empty_weights():
-                        model = AutoModel.from_pretrained(self.model_name)
+                        model = AutoModel.from_pretrained(
+                            self.model_name,
+                            trust_remote_code=True,
+                            attn_implementation='sdpa',
+                            torch_dtype=torch.bfloat16,
+                            init_vision=True,
+                            init_audio=False,
+                            init_tts=False
+                        )
                     
                     model = load_checkpoint_and_dispatch(
                         model, 
@@ -90,13 +98,34 @@ class ModelInference:
                     )
                 except ImportError:
                     logger.warning("Accelerate library not found. Loading model on single GPU.")
-                    model = AutoModel.from_pretrained(self.model_name, device_map="auto")
+                    model = AutoModel.from_pretrained(
+                        self.model_name,
+                        trust_remote_code=True,
+                        attn_implementation='sdpa',
+                        torch_dtype=torch.bfloat16,
+                        init_vision=True,
+                        init_audio=False,
+                        init_tts=False,
+                        device_map="auto"
+                    )
             else:
                 # Load on single GPU or CPU
-                model = AutoModel.from_pretrained(self.model_name, device_map="auto")
+                model = AutoModel.from_pretrained(
+                    self.model_name,
+                    trust_remote_code=True,
+                    attn_implementation='sdpa',
+                    torch_dtype=torch.bfloat16,
+                    init_vision=True,
+                    init_audio=False,
+                    init_tts=False,
+                    device_map="auto"
+                )
             
             # Load tokenizer
-            tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+            tokenizer = AutoTokenizer.from_pretrained(
+                self.model_name,
+                trust_remote_code=True
+            )
             
             # Set model to evaluation mode
             model.eval()
@@ -120,24 +149,38 @@ class ModelInference:
             logger.warning("Falling back to mock data.")
     
     def _process_image(self, image):
-        """Process the image using the same method as in chatbot_web_demo_o2.6.py."""
+        """Process the image for the MiniCPM-o-2_6 model."""
         if self.is_mock:
             logger.info("Using mock data, not processing image")
             return None
             
         try:
-            # Convert image to RGB if it's not already
-            if image.mode != "RGB":
+            logger.info(f"Processing image for model inference")
+            
+            # Ensure we have a PIL Image
+            if not isinstance(image, Image.Image):
+                if hasattr(image, 'path'):
+                    logger.info(f"Opening image from path: {image.path}")
+                    image = Image.open(image.path).convert("RGB")
+                else:
+                    logger.info(f"Opening image from file path")
+                    image = Image.open(image.file.path).convert("RGB")
+            elif image.mode != "RGB":
                 logger.info(f"Converting image from {image.mode} to RGB")
                 image = image.convert("RGB")
             
             # Resize image if it's too large
-            max_size = 448 * 16  # Maximum size as in chatbot_web_demo_o2.6.py
+            max_size = 448 * 16  # Maximum size for MiniCPM-o-2_6
             if max(image.size) > max_size:
                 logger.info(f"Resizing image from {image.size} to fit within {max_size}x{max_size}")
-                ratio = max_size / max(image.size)
-                new_size = (int(image.size[0] * ratio), int(image.size[1] * ratio))
-                image = image.resize(new_size, Image.BICUBIC)
+                w, h = image.size
+                if w > h:
+                    new_w = max_size
+                    new_h = int(h * max_size / w)
+                else:
+                    new_h = max_size
+                    new_w = int(w * max_size / h)
+                image = image.resize((new_w, new_h), resample=Image.BICUBIC)
                 logger.info(f"Image resized to {image.size}")
             
             logger.info(f"Image processed successfully: {image.size}")
@@ -145,7 +188,7 @@ class ModelInference:
             
         except Exception as e:
             logger.error(f"Error processing image: {str(e)}")
-            logger.error(f"Stack trace:", exc_info=True)
+            logger.error("Stack trace:", exc_info=True)
             return None
     
     def _generate_response(self, image, prompt):
@@ -168,49 +211,61 @@ class ModelInference:
                 logger.error("Failed to process image")
                 return "Error: Failed to process image"
             
-            # Create the message format expected by the model
-            messages = [
-                {"role": "user", "content": [
-                    {"type": "image", "image": processed_image},
-                    {"type": "text", "text": prompt}
-                ]}
-            ]
-            
             # Log the prompt being processed
             logger.info(f"Processing prompt: {prompt}")
             
             # Generate the response using the model's chat method
             start_time = time.time()
             
+            # Create the message format expected by the model
+            # For MiniCPM-o-2_6, the format is different from what we had before
+            msgs = [
+                {
+                    "role": "user", 
+                    "content": [
+                        {"type": "text", "text": prompt}
+                    ]
+                }
+            ]
+            
             # Set parameters for the model's chat method
             params = {
-                "sampling": True,
-                "top_p": 0.8,
-                "top_k": 50,
-                "temperature": 0.7,
-                "repetition_penalty": 1.1,
-                "max_new_tokens": 512
+                'sampling': True,
+                'top_p': 0.8,
+                'top_k': 50,
+                'temperature': 0.7,
+                'repetition_penalty': 1.1,
+                'max_new_tokens': 512
             }
             
-            # Generate the response
-            response = self.model.chat(self.tokenizer, messages, **params)
+            # Generate the response using the model's chat method with the image
+            # The MiniCPM-o-2_6 model expects the image as a separate parameter
+            response = self.model.chat(
+                tokenizer=self.tokenizer,
+                image=processed_image,
+                msgs=msgs,
+                **params
+            )
             
             # Clean up the response
-            answer = response
-            
             # Remove any unwanted tags or formatting
-            answer = answer.strip()
+            response = re.sub(r'(<box>.*</box>)', '', response)
+            response = response.replace('<ref>', '')
+            response = response.replace('</ref>', '')
+            response = response.replace('<box>', '')
+            response = response.replace('</box>', '')
+            response = response.strip()
             
             # Log the time taken and a preview of the response
             elapsed_time = time.time() - start_time
             logger.info(f"Response generated in {elapsed_time:.2f} seconds")
-            logger.info(f"Response preview: {answer[:100]}...")
+            logger.info(f"Response preview: {response[:100]}...")
             
-            return answer
+            return response
             
         except Exception as e:
             logger.error(f"Error generating response: {str(e)}")
-            logger.error(f"Stack trace:", exc_info=True)
+            logger.error("Stack trace:", exc_info=True)
             return f"Error generating response: {str(e)}"
     
     def analyze_gender_demographics(self, image):

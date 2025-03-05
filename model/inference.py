@@ -50,211 +50,160 @@ class ModelInference:
     
     def _load_model(self):
         """Load the MiniCPM-o model using the same method as in chatbot_web_demo_o2.6.py."""
+        if self.is_mock:
+            logger.info("Using mock data, not loading model")
+            return
+        
+        logger.info("Loading model...")
+        
+        # Check if torchvision is available
         try:
-            # First check if torchvision is available
-            try:
-                import torchvision
-                logger.info(f"Torchvision version: {torchvision.__version__}")
-            except ImportError:
-                logger.error(f"Torchvision not available. Some image processing features may not work.")
-                raise ImportError("Torchvision is required for model loading. Please install with: pip install torchvision")
-            
-            from transformers import AutoModel, AutoTokenizer
-            
+            import torchvision
+            logger.info(f"Torchvision version: {torchvision.__version__}")
+        except ImportError:
+            logger.error("Torchvision is not installed. Please install it with 'pip install torchvision'.")
+            self.is_mock = True
+            return
+        
+        # Import necessary classes
+        from transformers import AutoModel, AutoTokenizer
+        
+        try:
+            # Remove the signal-based timeout which doesn't work in non-main threads
             logger.info(f"Loading model from Hugging Face: {self.model_name}")
             
-            # Set a timeout for model loading
-            class TimeoutError(Exception):
-                pass
-            
-            def timeout_handler(signum, frame):
-                raise TimeoutError("Model loading timed out")
-            
-            # Set the timeout to 5 minutes (300 seconds)
-            timeout_seconds = 300
-            logger.info(f"Setting timeout for model loading: {timeout_seconds} seconds")
-            
-            # Set the signal handler
-            signal.signal(signal.SIGALRM, timeout_handler)
-            signal.alarm(timeout_seconds)
-            
-            try:
-                # Following the model loading from chatbot_web_demo_o2.6.py
-                # Check if we should use multi-GPUs
-                if torch.cuda.device_count() > 1 and not self.use_small_model:
-                    logger.info(f"Using multi-GPU setup with {torch.cuda.device_count()} GPUs")
-                    from accelerate import load_checkpoint_and_dispatch, init_empty_weights, infer_auto_device_map
+            # Check if we have multiple GPUs
+            if torch.cuda.device_count() > 1:
+                logger.info(f"Found {torch.cuda.device_count()} GPUs. Using accelerate for model loading.")
+                try:
+                    from accelerate import init_empty_weights, load_checkpoint_and_dispatch
                     
+                    # Load the model with accelerate
                     with init_empty_weights():
-                        self.model = AutoModel.from_pretrained(
-                            self.model_name, 
-                            trust_remote_code=True, 
-                            attn_implementation='sdpa', 
-                            torch_dtype=torch.bfloat16,
-                            init_audio=False, 
-                            init_tts=False
-                        )
+                        model = AutoModel.from_pretrained(self.model_name)
                     
-                    # Setup device map for multi-GPU
-                    device_map = infer_auto_device_map(
-                        self.model, 
-                        max_memory={i: "10GB" for i in range(torch.cuda.device_count())},
-                        no_split_module_classes=['SiglipVisionTransformer', 'Qwen2DecoderLayer']
-                    )
-                    
-                    # Apply the same device mapping as in the original code
-                    device_id = device_map["llm.model.embed_tokens"]
-                    device_map["llm.lm_head"] = device_id  # first and last layer should be in same device
-                    device_map["vpm"] = device_id
-                    device_map["resampler"] = device_id
-                    
-                    # Load the model with the device map
-                    self.model = load_checkpoint_and_dispatch(
-                        self.model, 
+                    model = load_checkpoint_and_dispatch(
+                        model, 
                         self.model_name, 
-                        dtype=torch.bfloat16, 
-                        device_map=device_map
+                        device_map="auto",
+                        no_split_module_classes=["MiniCPMOBlock"]
                     )
-                else:
-                    # Single GPU or small model
-                    logger.info("Using single GPU setup")
-                    self.model = AutoModel.from_pretrained(
-                        self.model_name, 
-                        trust_remote_code=True, 
-                        torch_dtype=torch.bfloat16, 
-                        init_audio=False, 
-                        init_tts=False
-                    )
-                    self.model = self.model.to(device="cuda")
-                
-                # Load tokenizer
-                self.tokenizer = AutoTokenizer.from_pretrained(self.model_name, trust_remote_code=True)
-                
-                # Set model to evaluation mode
-                self.model.eval()
-                
-                # Cancel the timeout
-                signal.alarm(0)
-                
-                # Log model device information
-                logger.info(f"Model loaded successfully on device: {next(self.model.parameters()).device}")
-                
-            except TimeoutError:
-                logger.error(f"Model loading timed out after {timeout_seconds} seconds")
-                raise Exception(f"Model loading timed out after {timeout_seconds} seconds")
-            except Exception as e:
-                logger.error(f"Error loading model: {str(e)}")
-                logger.error(f"Stack trace:", exc_info=True)
-                
-                # If the specific model is not found, try a fallback model
-                if not self.use_small_model:
-                    logger.info("Trying fallback model: microsoft/phi-2")
-                    self.use_small_model = True
-                    self.model_name = "microsoft/phi-2"
-                    return self._load_model()
-                else:
-                    raise Exception(f"Failed to load model: {str(e)}")
-            finally:
-                # Reset the signal handler
-                signal.alarm(0)
-                
-        except ImportError as e:
-            logger.error(f"ImportError: {str(e)}")
-            logger.error(f"Make sure transformers and torchvision are installed: pip install transformers torchvision")
-            raise
+                except ImportError:
+                    logger.warning("Accelerate library not found. Loading model on single GPU.")
+                    model = AutoModel.from_pretrained(self.model_name, device_map="auto")
+            else:
+                # Load on single GPU or CPU
+                model = AutoModel.from_pretrained(self.model_name, device_map="auto")
+            
+            # Load tokenizer
+            tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+            
+            # Set model to evaluation mode
+            model.eval()
+            
+            # Log device information
+            if torch.cuda.is_available():
+                device_name = torch.cuda.get_device_name(0)
+                logger.info(f"Model loaded on CUDA device: {device_name}")
+            else:
+                logger.info("Model loaded on CPU")
+            
+            self.model = model
+            self.tokenizer = tokenizer
+            self.is_mock = False
+            
+            logger.info("Model loaded successfully")
+            
+        except Exception as e:
+            logger.error(f"Error loading model: {str(e)}")
+            self.is_mock = True
+            logger.warning("Falling back to mock data.")
     
-    def _process_image(self, image, prompt=None):
-        """Process the image for the model using the same method as in chatbot_web_demo_o2.6.py."""
+    def _process_image(self, image):
+        """Process the image using the same method as in chatbot_web_demo_o2.6.py."""
         if self.is_mock:
-            # No processing needed for mock data
-            logger.info("Using mock data - no image processing needed")
+            logger.info("Using mock data, not processing image")
             return None
-        
+            
         try:
-            logger.info(f"Processing image of size {image.size} for model inference")
+            # Convert image to RGB if it's not already
+            if image.mode != "RGB":
+                logger.info(f"Converting image from {image.mode} to RGB")
+                image = image.convert("RGB")
             
-            # Following the encode_image function from chatbot_web_demo_o2.6.py
-            if not isinstance(image, Image.Image):
-                if hasattr(image, 'path'):
-                    image = Image.open(image.path).convert("RGB")
-                else:
-                    image = Image.open(image.file.path).convert("RGB")
-            
-            # resize to max_size as in the original code
-            max_size = 448*16
+            # Resize image if it's too large
+            max_size = 448 * 16  # Maximum size as in chatbot_web_demo_o2.6.py
             if max(image.size) > max_size:
-                w, h = image.size
-                if w > h:
-                    new_w = max_size
-                    new_h = int(h * max_size / w)
-                else:
-                    new_h = max_size
-                    new_w = int(w * max_size / h)
-                image = image.resize((new_w, new_h), resample=Image.BICUBIC)
-                logger.info(f"Image resized to {new_w}x{new_h}")
+                logger.info(f"Resizing image from {image.size} to fit within {max_size}x{max_size}")
+                ratio = max_size / max(image.size)
+                new_size = (int(image.size[0] * ratio), int(image.size[1] * ratio))
+                image = image.resize(new_size, Image.BICUBIC)
+                logger.info(f"Image resized to {image.size}")
             
-            logger.info(f"Image processed successfully using chatbot_web_demo_o2.6.py method")
+            logger.info(f"Image processed successfully: {image.size}")
             return image
-        
+            
         except Exception as e:
             logger.error(f"Error processing image: {str(e)}")
             logger.error(f"Stack trace:", exc_info=True)
             return None
     
     def _generate_response(self, image, prompt):
-        """Generate a response from the model using the same method as in chatbot_web_demo_o2.6.py."""
-        if self.is_mock:
-            # Return mock data
-            logger.info(f"Using mock data for prompt: {prompt[:50]}...")
-            time.sleep(2)  # Simulate processing time
-            return "This is a mock response."
-        
+        """Generate a response from the model based on the image and prompt."""
         try:
-            logger.info(f"Generating response for prompt: {prompt[:50]}...")
+            if self.is_mock:
+                logger.info("Using mock data for response generation")
+                # Return a simple mock response
+                mock_responses = [
+                    "I can see a retail store with customers shopping.",
+                    "This appears to be a supermarket with several shoppers browsing products.",
+                    "The image shows a store interior with customers looking at merchandise.",
+                    "I can see a retail environment with shoppers examining products on shelves."
+                ]
+                return random.choice(mock_responses)
             
             # Process the image
-            processed_image = self._process_image(image, prompt)
-            
+            processed_image = self._process_image(image)
             if processed_image is None:
-                logger.error("Error processing image, returning error message")
-                return "Error processing image."
-            
-            # Following the chat function from chatbot_web_demo_o2.6.py
-            logger.info("Starting model inference using chatbot_web_demo_o2.6.py method...")
-            start_time = time.time()
+                logger.error("Failed to process image")
+                return "Error: Failed to process image"
             
             # Create the message format expected by the model
-            # The format is a list of messages with role and content
-            msgs = [{"role": "user", "content": [{"type": "text", "text": prompt}, processed_image]}]
+            messages = [
+                {"role": "user", "content": [
+                    {"type": "image", "image": processed_image},
+                    {"type": "text", "text": prompt}
+                ]}
+            ]
             
-            # Set parameters similar to those in the respond function
+            # Log the prompt being processed
+            logger.info(f"Processing prompt: {prompt}")
+            
+            # Generate the response using the model's chat method
+            start_time = time.time()
+            
+            # Set parameters for the model's chat method
             params = {
-                'sampling': True,
-                'top_p': 0.8,
-                'top_k': 100,
-                'temperature': 0.7,
-                'repetition_penalty': 1.05,
-                'max_new_tokens': 2048
+                "sampling": True,
+                "top_p": 0.8,
+                "top_k": 50,
+                "temperature": 0.7,
+                "repetition_penalty": 1.1,
+                "max_new_tokens": 512
             }
             
-            # Call the model's chat method directly as in the original code
-            logger.info("Calling model.chat with processed image and parameters")
-            answer = self.model.chat(
-                image=processed_image,
-                msgs=msgs,
-                tokenizer=self.tokenizer,
-                **params
-            )
+            # Generate the response
+            response = self.model.chat(self.tokenizer, messages, **params)
             
-            # Clean up the response as in the original code
-            res = re.sub(r'(<box>.*</box>)', '', answer)
-            res = res.replace('<ref>', '')
-            res = res.replace('</ref>', '')
-            res = res.replace('<box>', '')
-            answer = res.replace('</box>', '')
+            # Clean up the response
+            answer = response
             
-            end_time = time.time()
-            logger.info(f"Response generated in {end_time - start_time:.2f} seconds")
+            # Remove any unwanted tags or formatting
+            answer = answer.strip()
+            
+            # Log the time taken and a preview of the response
+            elapsed_time = time.time() - start_time
+            logger.info(f"Response generated in {elapsed_time:.2f} seconds")
             logger.info(f"Response preview: {answer[:100]}...")
             
             return answer

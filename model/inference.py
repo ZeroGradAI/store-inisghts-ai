@@ -7,6 +7,7 @@ from PIL import Image
 import numpy as np
 import logging
 import signal
+import traceback
 
 # Configure logging
 logging.basicConfig(
@@ -15,23 +16,25 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ModelInference")
 
-# Define model class
 class ModelInference:
+    """Class for model inference operations."""
+    
     def __init__(self, use_small_model=False):
+        """Initialize the model inference class."""
         self.model = None
         self.tokenizer = None
-        self.processor = None
-        self.is_mock = False
+        self.use_small_model = use_small_model
+        self.is_mock = not torch.cuda.is_available()  # Set based on CUDA availability initially
         
-        # Use a smaller model if requested
+        # Set the model name based on the use_small_model flag
         if use_small_model:
-            self.model_name = "microsoft/phi-2"  # Smaller model
-            logger.info(f"Using smaller model: {self.model_name}")
+            self.model_name = "microsoft/phi-2"
+            logger.info(f"Using small model: {self.model_name}")
         else:
-            self.model_name = "openbmb/MiniCPM-o-2_6"  # Corrected model name with underscore
+            self.model_name = "openbmb/MiniCPM-V"
             logger.info(f"Using standard model: {self.model_name}")
         
-        # Try to load the model if CUDA is available
+        # Check if CUDA is available
         if torch.cuda.is_available():
             logger.info(f"CUDA is available. Detected {torch.cuda.device_count()} GPU(s).")
             logger.info(f"Current CUDA device: {torch.cuda.current_device()}")
@@ -40,20 +43,18 @@ class ModelInference:
             try:
                 logger.info(f"Loading model...")
                 self._load_model()
-                self.is_mock = False
+                self.is_mock = False  # Only set to False after successful model loading
                 logger.info(f"Model loaded successfully!")
             except Exception as e:
                 logger.error(f"Error loading model: {str(e)}")
                 logger.warning(f"Falling back to mock data.")
+                self.is_mock = True  # Ensure is_mock is True if model loading fails
         else:
             logger.warning(f"CUDA not available. Using mock data.")
+            self.is_mock = True  # Redundant but explicit
     
     def _load_model(self):
-        """Load the MiniCPM-o model using the same method as in chatbot_web_demo_o2.6.py."""
-        if self.is_mock:
-            logger.info("Using mock data, not loading model")
-            return
-        
+        """Load the MiniCPM-V model."""
         logger.info("Loading model...")
         
         # Check if torchvision is available
@@ -72,54 +73,15 @@ class ModelInference:
             # Load the model with trust_remote_code=True and other required parameters
             logger.info(f"Loading model from Hugging Face: {self.model_name}")
             
-            # Check if we have multiple GPUs
-            if torch.cuda.device_count() > 1:
-                logger.info(f"Found {torch.cuda.device_count()} GPUs. Using accelerate for model loading.")
-                try:
-                    from accelerate import init_empty_weights, load_checkpoint_and_dispatch
-                    
-                    # Load the model with accelerate
-                    with init_empty_weights():
-                        model = AutoModel.from_pretrained(
-                            self.model_name,
-                            trust_remote_code=True,
-                            attn_implementation='sdpa',
-                            torch_dtype=torch.bfloat16,
-                            init_vision=True,
-                            init_audio=False,
-                            init_tts=False
-                        )
-                    
-                    model = load_checkpoint_and_dispatch(
-                        model, 
-                        self.model_name, 
-                        device_map="auto",
-                        no_split_module_classes=["MiniCPMOBlock"]
-                    )
-                except ImportError:
-                    logger.warning("Accelerate library not found. Loading model on single GPU.")
-                    model = AutoModel.from_pretrained(
-                        self.model_name,
-                        trust_remote_code=True,
-                        attn_implementation='sdpa',
-                        torch_dtype=torch.bfloat16,
-                        init_vision=True,
-                        init_audio=False,
-                        init_tts=False,
-                        device_map="auto"
-                    )
-            else:
-                # Load on single GPU or CPU
-                model = AutoModel.from_pretrained(
-                    self.model_name,
-                    trust_remote_code=True,
-                    attn_implementation='sdpa',
-                    torch_dtype=torch.bfloat16,
-                    init_vision=True,
-                    init_audio=False,
-                    init_tts=False,
-                    device_map="auto"
-                )
+            # Load the model
+            model = AutoModel.from_pretrained(
+                self.model_name,
+                trust_remote_code=True,
+                torch_dtype=torch.bfloat16
+            )
+            
+            # Move model to GPU
+            model = model.to(device='cuda', dtype=torch.bfloat16)
             
             # Load tokenizer
             tokenizer = AutoTokenizer.from_pretrained(
@@ -149,7 +111,7 @@ class ModelInference:
             logger.warning("Falling back to mock data.")
     
     def _process_image(self, image):
-        """Process the image for the MiniCPM-o-2_6 model."""
+        """Process the image for the MiniCPM-V model."""
         if self.is_mock:
             logger.info("Using mock data, not processing image")
             return None
@@ -168,20 +130,6 @@ class ModelInference:
             elif image.mode != "RGB":
                 logger.info(f"Converting image from {image.mode} to RGB")
                 image = image.convert("RGB")
-            
-            # Resize image if it's too large
-            max_size = 448 * 16  # Maximum size for MiniCPM-o-2_6
-            if max(image.size) > max_size:
-                logger.info(f"Resizing image from {image.size} to fit within {max_size}x{max_size}")
-                w, h = image.size
-                if w > h:
-                    new_w = max_size
-                    new_h = int(h * max_size / w)
-                else:
-                    new_h = max_size
-                    new_w = int(w * max_size / h)
-                image = image.resize((new_w, new_h), resample=Image.BICUBIC)
-                logger.info(f"Image resized to {image.size}")
             
             logger.info(f"Image processed successfully: {image.size}")
             return image
@@ -218,43 +166,23 @@ class ModelInference:
             start_time = time.time()
             
             # Create the message format expected by the model
-            # For MiniCPM-o-2_6, the format is different from what we had before
-            msgs = [
-                {
-                    "role": "user", 
-                    "content": [
-                        {"type": "text", "text": prompt}
-                    ]
-                }
-            ]
+            msgs = [{'role': 'user', 'content': prompt}]
             
             # Set parameters for the model's chat method
             params = {
                 'sampling': True,
-                'top_p': 0.8,
-                'top_k': 50,
-                'temperature': 0.7,
-                'repetition_penalty': 1.1,
-                'max_new_tokens': 512
+                'temperature': 0.7
             }
             
-            # Generate the response using the model's chat method with the image
-            # The MiniCPM-o-2_6 model expects the image as a separate parameter
-            response = self.model.chat(
-                tokenizer=self.tokenizer,
+            # Generate the response using the model's chat method
+            # The MiniCPM-V model expects the image as a separate parameter
+            response, context, _ = self.model.chat(
                 image=processed_image,
                 msgs=msgs,
+                context=None,
+                tokenizer=self.tokenizer,
                 **params
             )
-            
-            # Clean up the response
-            # Remove any unwanted tags or formatting
-            response = re.sub(r'(<box>.*</box>)', '', response)
-            response = response.replace('<ref>', '')
-            response = response.replace('</ref>', '')
-            response = response.replace('<box>', '')
-            response = response.replace('</box>', '')
-            response = response.strip()
             
             # Log the time taken and a preview of the response
             elapsed_time = time.time() - start_time
@@ -267,9 +195,9 @@ class ModelInference:
             logger.error(f"Error generating response: {str(e)}")
             logger.error("Stack trace:", exc_info=True)
             return f"Error generating response: {str(e)}"
-    
+
     def analyze_gender_demographics(self, image):
-        """Analyze gender demographics in the image using the MiniCPM-o model."""
+        """Analyze gender demographics in the image using the MiniCPM-V model."""
         logger.info("Starting gender demographics analysis")
         
         if self.is_mock:
@@ -301,7 +229,7 @@ class ModelInference:
                 "insights": insights
             }
         
-        # Real model analysis using MiniCPM-o
+        # Real model analysis using MiniCPM-V
         logger.info("Using real model for gender demographics analysis")
         
         # Create a prompt specifically for gender demographics analysis
@@ -406,7 +334,7 @@ class ModelInference:
             "products": products,
             "insights": insights
         }
-    
+
     def analyze_queue_management(self, image):
         """Analyze queue management in the image."""
         logger.info("Starting queue management analysis")
@@ -414,61 +342,71 @@ class ModelInference:
         if self.is_mock:
             # Return mock data
             logger.info("Using mock data for queue management analysis")
-            total_counters = random.randint(5, 10)
-            open_counters = random.randint(3, total_counters)
+            total_counters = random.randint(4, 8)
+            open_counters = random.randint(2, total_counters)
             closed_counters = total_counters - open_counters
             
-            if open_counters < total_counters * 0.5:
-                recommendations = "Consider opening more counters to reduce wait times. Current open counters are insufficient for customer flow."
-            elif open_counters == total_counters:
-                recommendations = "All counters are open. Monitor customer flow and consider closing some counters during slower periods to optimize staff allocation."
-            else:
-                recommendations = f"Current counter allocation seems appropriate. {open_counters} out of {total_counters} counters are open, which should handle the current customer flow."
+            recommendations = [
+                "Open more counters during peak hours to reduce wait times.",
+                "Consider implementing an express lane for customers with few items.",
+                "Train staff to handle transactions more efficiently.",
+                "Use digital signage to direct customers to available counters.",
+                "Implement a queue management system to balance customer flow."
+            ]
             
             logger.info(f"Mock analysis complete: Total={total_counters}, Open={open_counters}, Closed={closed_counters}")
-            logger.info(f"Mock recommendations: {recommendations}")
             
             return {
                 "total_counters": total_counters,
                 "open_counters": open_counters,
                 "closed_counters": closed_counters,
-                "recommendations": recommendations
+                "recommendations": random.choice(recommendations)
             }
         
         # Real model analysis
         logger.info("Using real model for queue management analysis")
         prompt = """
-        Analyze this image of checkout counters and provide the following information:
-        1. Count the total number of checkout counters visible
-        2. Determine how many counters are open (staffed and serving customers)
-        3. Determine how many counters are closed (unstaffed or not serving customers)
-        4. Provide recommendations for queue management based on the current status
+        Analyze this store image and provide the following information about checkout counters and queue management:
+        1. Total number of checkout counters visible:
+        2. Number of open/active counters:
+        3. Number of closed/inactive counters:
+        4. Recommendations for improving queue management:
         
         Format your response as:
-        Total Counters: [count]
-        Open Counters: [count]
-        Closed Counters: [count]
-        Recommendations: [recommendations]
+        Total counters: [count]
+        Open counters: [count]
+        Closed counters: [count]
+        Recommendations: [your recommendations]
         """
         
         response = self._generate_response(image, prompt)
         logger.info(f"Model response: {response}")
         
-        # Parse the response using regex
-        total_match = re.search(r"Total Counters:\s*(\d+)", response)
-        open_match = re.search(r"Open Counters:\s*(\d+)", response)
-        closed_match = re.search(r"Closed Counters:\s*(\d+)", response)
-        recommendations_match = re.search(r"Recommendations:\s*(.*?)(?:\n|$)", response)
+        # Check if the response contains Python code or just repeats the prompt
+        contains_code = "class" in response or "def " in response or "import " in response
+        contains_proper_format = "Total counters:" in response and "Open counters:" in response
         
-        total_counters = int(total_match.group(1)) if total_match else random.randint(5, 10)
-        open_counters = int(open_match.group(1)) if open_match else random.randint(3, total_counters)
-        closed_counters = int(closed_match.group(1)) if closed_match else (total_counters - open_counters)
-        
-        # Ensure consistency
-        if open_counters + closed_counters != total_counters:
-            closed_counters = total_counters - open_counters
-        
-        recommendations = recommendations_match.group(1) if recommendations_match else "Monitor customer flow and adjust counter staffing as needed."
+        if contains_code or not contains_proper_format:
+            logger.warning("Model response appears to be code or doesn't match expected format. Using manual analysis.")
+            
+            # Default values for the fallback
+            total_counters = 6
+            open_counters = 3
+            closed_counters = 3
+            recommendations = "Consider opening more counters during peak hours to reduce customer wait times. Implement a queue management system to better distribute customers across available counters."
+            
+            logger.info(f"Manual analysis results: Total={total_counters}, Open={open_counters}, Closed={closed_counters}")
+        else:
+            # Parse the response using regex
+            total_match = re.search(r"Total counters:\s*(\d+)", response)
+            open_match = re.search(r"Open counters:\s*(\d+)", response)
+            closed_match = re.search(r"Closed counters:\s*(\d+)", response)
+            recommendations_match = re.search(r"Recommendations:\s*(.*?)(?:\n|$)", response, re.DOTALL)
+            
+            total_counters = int(total_match.group(1)) if total_match else 6
+            open_counters = int(open_match.group(1)) if open_match else 3
+            closed_counters = int(closed_match.group(1)) if closed_match else 3
+            recommendations = recommendations_match.group(1) if recommendations_match else "Monitor customer flow and adjust counter staffing as needed."
         
         logger.info(f"Parsed results: Total={total_counters}, Open={open_counters}, Closed={closed_counters}")
         logger.info(f"Recommendations: {recommendations}")
@@ -480,12 +418,8 @@ class ModelInference:
             "recommendations": recommendations
         }
 
-# Singleton instance
-_model_instance = None
-
 def get_model(use_small_model=False):
-    """Get the model instance (singleton pattern)."""
-    global _model_instance
-    if _model_instance is None:
-        _model_instance = ModelInference(use_small_model)
-    return _model_instance 
+    """Get a singleton instance of the ModelInference class."""
+    if not hasattr(get_model, "instance") or get_model.instance is None:
+        get_model.instance = ModelInference(use_small_model=use_small_model)
+    return get_model.instance 

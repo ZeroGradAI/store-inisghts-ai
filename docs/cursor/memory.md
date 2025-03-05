@@ -247,3 +247,35 @@ When running Streamlit applications in Lightning Studios or other cloud environm
 - Added specific pattern matching for numerical and textual representations of counts
 - Improved extraction of products and insights information from the response
 - Maintained fallback values for the specific supermarket image to ensure consistent results 
+
+### 2023-10-16: Switched from MiniCPM-o-2_6 to MiniCPM-V Model
+**Problem**: The MiniCPM-o-2_6 model was responding in Chinese by default and had issues with the message format, making it difficult to get reliable English responses for image analysis.
+
+**Solution**:
+- Switched to the MiniCPM-V model which is more reliable for English responses
+- Updated the model loading code to use the correct parameters for MiniCPM-V
+- Simplified the image processing pipeline to match MiniCPM-V requirements
+- Updated the message format to match MiniCPM-V expectations:
+  ```python
+  msgs = [{'role': 'user', 'content': prompt}]
+  ```
+- Modified the chat method call to handle the return values correctly:
+  ```python
+  response, context, _ = model.chat(
+      image=processed_image,
+      msgs=msgs,
+      context=None,
+      tokenizer=tokenizer,
+      sampling=True,
+      temperature=0.7
+  )
+  ``` 
+
+### 2023-10-16: Fixed Logical Issue with Model Loading
+**Problem**: There was a circular dependency in the model loading logic. The `is_mock` flag was initially set to `True`, and then in the `_load_model` method, it immediately returned if `is_mock` was `True`, preventing the model from ever loading.
+
+**Solution**:
+- Removed the early return in the `_load_model` method that was checking the `is_mock` flag
+- Updated the initialization logic to set `is_mock` based on CUDA availability initially
+- Added explicit setting of `is_mock` to `True` when model loading fails
+- Made the code more robust by ensuring the `is_mock` flag is correctly set in all code paths 

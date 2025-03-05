@@ -31,6 +31,14 @@ class ModelInference:
     def _load_model(self):
         """Load the MiniCPM-o model."""
         try:
+            # First check if torchvision is available
+            try:
+                import torchvision
+                print(f"Torchvision version: {torchvision.__version__}")
+            except ImportError:
+                print(f"Torchvision not available. Some image processing features may not work.")
+                raise ImportError("Torchvision is required for model loading. Please install with: pip install torchvision")
+            
             from transformers import AutoModel, AutoTokenizer, AutoProcessor
             
             # First check if the model is available locally
@@ -76,7 +84,7 @@ class ModelInference:
                         raise Exception(f"Failed to load both primary and fallback models: {str(e)} | {str(e2)}")
         except ImportError as e:
             print(f"ImportError: {str(e)}")
-            print(f"Make sure transformers is installed: pip install transformers")
+            print(f"Make sure transformers and torchvision are installed: pip install transformers torchvision")
             raise
     
     def _process_image(self, image):

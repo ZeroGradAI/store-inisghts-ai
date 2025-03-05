@@ -114,3 +114,13 @@ When running Streamlit applications in Lightning Studios or other cloud environm
 - Removed the duplicate implementation in app/model/inference.py
 - Ensured all imports point to the correct model/inference.py file
 - Added proper path handling in the import statements to ensure the correct module is loaded 
+
+### Issue: Missing torchvision dependency
+
+**Problem**: The MiniCPM-o model requires torchvision for image processing operations, resulting in the error: "operator torchvision::nms does not exist"
+
+**Solution**:
+- Added torchvision to the requirements.txt file
+- Updated the model loading code to explicitly check for torchvision availability
+- Added clear error messages to guide installation when dependencies are missing
+- Documented the dependency in the project documentation 

@@ -1,0 +1,8 @@
+streamlit==1.29.0
+Pillow==10.0.0
+numpy==1.24.3
+pandas==2.0.3
+plotly==5.15.0
+opencv-python==4.8.0.76
+torch==2.1.0
+transformers==4.33.2 

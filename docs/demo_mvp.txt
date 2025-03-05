@@ -1,0 +1,23 @@
+Store Insights AI
+
+The app is meant for store managers to better manage their stores. They have multiple-cameras in the store 
+from whose video feed we would take a snapshot of the store every X minutes and then draw various insights
+
+For the purposes of the demo, it would just be images instead of a video feed.
+
+
+Now create a simple web app for demo using streamlit/gradio for now. The app should have two modules - Gender Demography, Queue Management and then a main dashboard.
+
+1. In each of the two modules, there should be an option for users to upload the images.
+2. Now for the gender demography module, the user would upload an image of an area where users are browsing the products (could be grocery, clothes etc) and click on submit,
+The model should now analyze the image, and show the count the number of men and women in the image and  also give a general description of what products are the customers looking at if possible.
+3. For the Queue Management module, the user would upload an image of a top view of the billing counters, and click on submit.
+The model should now analyze the image, and show a count of the total counters, how many are open and closed, if any particular counter is over crowded and then suggest to start billing in a new
+counter if available.
+4. In the main dashboard, it should show a general summary of the two modules, whereever the image has been uploaded and inferred.
+
+
+Please refer to this code for the model inference and other things etc : https://github.com/OpenBMB/MiniCPM-o/blob/main/web_demos/minicpm-o_2.6/chatbot_web_demo_o2.6.py
+
+Once the code is setup, i will push this to github as i do not have cuda on my local machine to run the model. I will then import it to the Pytorch Lightning Studio hub with a GPU
+to launch the same. 

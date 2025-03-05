@@ -113,7 +113,6 @@ class ModelInference:
                 trust_remote_code=True,
                 torch_dtype=dtype,
                 low_cpu_mem_usage=True,
-                use_cache=True
             )
             
             # Move model to device with consistent dtype
@@ -177,6 +176,7 @@ class ModelInference:
         """
         Process an image for the model.
         Either image_path or image must be provided.
+        Returns a PIL Image ready for model consumption.
         """
         if self.is_mock:
             # Return a simple placeholder if in mock mode
@@ -185,7 +185,6 @@ class ModelInference:
         try:
             # Import required libraries
             from PIL import Image
-            import torchvision.transforms as transforms
             
             # Load the image if a path is provided
             if image_path:
@@ -214,33 +213,15 @@ class ModelInference:
             # Log original image size
             logger.info(f"Original image size: {image.size}")
             
-            # Apply preprocessing exactly as specified in MiniCPM-V examples
-            transform = transforms.Compose([
-                transforms.Resize(
-                    (224, 224), 
-                    interpolation=transforms.InterpolationMode.BICUBIC
-                ),
-                transforms.ToTensor(),
-                transforms.Normalize(
-                    mean=[0.48145466, 0.4578275, 0.40821073],
-                    std=[0.26862954, 0.26130258, 0.27577711]
-                )
-            ])
+            # Resize the image to 224x224 which is standard for vision models
+            # but keep it as a PIL Image since that's what MiniCPM-V expects
+            target_size = (224, 224)
+            logger.info(f"Resizing image to {target_size}")
+            processed_image = image.resize(target_size, Image.BICUBIC)
             
-            # Apply transformation
-            processed_image = transform(image).unsqueeze(0)
+            logger.info(f"Processed image size: {processed_image.size}")
             
-            # Log tensor information
-            logger.info(f"Processed image tensor shape: {processed_image.shape}")
-            logger.info(f"Processed image tensor dtype: {processed_image.dtype}")
-            
-            # Convert to the model's required dtype and move to model's device
-            if hasattr(self, 'model') and self.model is not None:
-                device = next(self.model.parameters()).device
-                dtype = next(self.model.parameters()).dtype
-                logger.info(f"Moving image tensor to {device} with dtype {dtype}")
-                processed_image = processed_image.to(device=device, dtype=dtype)
-            
+            # Return the PIL Image directly - do NOT convert to tensor
             return processed_image
             
         except Exception as e:
@@ -264,7 +245,7 @@ class ModelInference:
             return random.choice(mock_responses)
         
         try:
-            # Process the image with our enhanced processing method
+            # Process the image to get a PIL Image
             logger.info("Processing image for model inference")
             processed_image = self._process_image(image=image)
             
@@ -272,10 +253,12 @@ class ModelInference:
                 logger.error("Failed to process image")
                 return "Error: Failed to process image. Please try with a different image."
             
+            if isinstance(processed_image, str) and processed_image == "mock_image_processed":
+                logger.info("Using mock image for response generation")
+                return "This is a mock response for image analysis."
+            
             # Log processed image information
-            logger.info(f"Processed image shape: {processed_image.shape}")
-            logger.info(f"Processed image dtype: {processed_image.dtype}")
-            logger.info(f"Processed image device: {processed_image.device}")
+            logger.info(f"Processed image size: {processed_image.size}")
             
             # Make sure we're using English in the prompt
             if "in English" not in prompt:
@@ -285,15 +268,9 @@ class ModelInference:
             msgs = [{'role': 'user', 'content': prompt}]
             logger.info(f"Prepared messages: {msgs}")
             
-            # Get the model's current device and dtype
+            # Get the model's current device
             device = next(self.model.parameters()).device
-            dtype = next(self.model.parameters()).dtype
-            logger.info(f"Model is on device: {device} with dtype: {dtype}")
-            
-            # Make sure the processed image is on the same device and has the right dtype
-            if processed_image.device != device or processed_image.dtype != dtype:
-                logger.info(f"Moving image to match model (device: {device}, dtype: {dtype})")
-                processed_image = processed_image.to(device=device, dtype=dtype)
+            logger.info(f"Model is on device: {device}")
             
             # Set parameters for the model's generation
             generation_config = {
@@ -309,8 +286,9 @@ class ModelInference:
             # Use a try-except block to handle potential position embedding errors
             try:
                 logger.info("Calling model.chat method...")
+                # MiniCPM-V expects a PIL Image and will handle the transformation internally
                 response, _, _ = self.model.chat(
-                    image=processed_image,
+                    image=processed_image,  # Pass the PIL Image directly
                     msgs=msgs,
                     context=None,
                     tokenizer=self.tokenizer,
@@ -363,6 +341,17 @@ class ModelInference:
                 
                 # If all attempts fail, return a descriptive error
                 return "I apologize, but I'm having difficulty analyzing this image. Please try with a different image or question."
+                
+            except TypeError as e:
+                # Handle type errors specifically (like the PIL Image issue)
+                error_msg = str(e)
+                logger.error(f"TypeError in model.chat: {error_msg}")
+                
+                if "pic should be PIL Image" in error_msg:
+                    logger.error("Image format error: Model expects PIL Image")
+                    return "Error: The model is having trouble processing the image format. Please try a different image."
+                
+                return "An error occurred while processing your request. Please try again with a different image or question."
                 
             except Exception as other_e:
                 # Handle other exceptions

@@ -344,4 +344,16 @@ The solution addresses the root cause by ensuring proper position embedding conf
   messages=[{"role": "user", "content": prompt}]
   ```
 - Added error handling when the model doesn't return expected formats
-- Enhanced logging to capture and report model behavior 
+- Enhanced logging to capture and report model behavior
+
+### 2023-10-16: Image Format Issue with MiniCPM-V Model
+**Problem**: The MiniCPM-V model was failing with the error "pic should be PIL Image or ndarray. Got <class 'torch.Tensor'>" because we were pre-processing the image into a tensor but the model expected a PIL Image.
+
+**Solution**:
+- Modified the `_process_image` method to return a PIL Image instead of a tensor
+- Removed the tensor conversion, normalization, and device allocation steps
+- Updated the image processing to simply resize the image to 224x224 using PIL's BICUBIC interpolation
+- Updated the `_generate_response` method to handle PIL Images correctly and pass them directly to the model
+- Added specific error handling for image format issues
+- Enhanced logging to provide clearer information about the image processing steps
+- Updated documentation to reflect that MiniCPM-V handles its own image transformation internally 

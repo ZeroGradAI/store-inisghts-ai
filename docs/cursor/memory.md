@@ -1,24 +1,85 @@
-# Store Insights AI - Project Memory
+# Memory: Store Insights AI
 
-This document records important lessons learned throughout the development process to avoid repeating mistakes.
+This document records learnings and solutions to problems encountered during the development of Store Insights AI to prevent repeating mistakes.
 
-## Learnings
+## Model Integration Learnings
 
-### Development Environment
-- Using Windows command prompt for terminal operations
-- Project is intended to be deployed to Pytorch Lightning Studio hub with GPU
+### Problem: MiniCPM and Phi Models Not Working Well
 
-### Integration Notes
-- The computer vision model (MiniCPM-o) requires CUDA support, which is not available locally
-- Implemented conditional model loading to handle both GPU and non-GPU environments
-- Used a fallback mechanism to provide mock data when GPU is not available
+**Issue**: The initial implementation used MiniCPM and Microsoft Phi models, which had several issues:
+- Model loading errors
+- Model responding in Chinese instead of English
+- Image processing compatibility issues
 
-### Model Integration
-- MiniCPM-o model is loaded from HuggingFace using AutoModel and AutoTokenizer
-- The model requires preprocessing images to a maximum size of 448*16 pixels
-- Model inference is done using the chat method with appropriate parameters
-- Regular expressions are used to extract structured data from the model's text output
-- Error handling is important to gracefully handle model loading and inference failures
+**Solution**: Replaced these models with LLaVA v1.5-7b, which:
+- Works well with English prompts
+- Has good image understanding capabilities
+- Has a more consistent API and documentation
+
+**Learning**: When selecting a vision-language model for a production application:
+1. Ensure it supports the primary language of your application
+2. Test it thoroughly with your specific use case
+3. Check that it has a stable and well-documented API
+4. Verify it works well with the image formats and types you'll be using
+
+### Problem: Image Processing Errors
+
+**Issue**: The model expected a PIL Image but received a tensor.
+
+**Solution**: 
+- Modified the `_process_image` method to always return a PIL Image
+- Updated the `_generate_response` method to use the appropriate image processing functions for LLaVA
+- Ensured image tensors are created using the model's image processor
+
+**Learning**: 
+1. Different vision-language models expect different image formats
+2. Always check the model's documentation for the expected input format
+3. Implement clear logging of input and output shapes/types to identify issues quickly
+
+## Implementation Best Practices
+
+### Input Validation and Error Handling
+
+**Best Practice**: Implement robust error handling around model inference.
+
+**Implementation**:
+- Added clear error messages when model loading fails
+- Implemented fallback to mock data when GPU is not available or model inference fails
+- Added detailed logging throughout the inference process
+
+**Learning**: Always plan for failure and have fallback mechanisms in place.
+
+### Response Parsing
+
+**Best Practice**: Carefully parse model responses to extract structured data.
+
+**Implementation**:
+- Used regular expressions to extract key information from model responses
+- Added default values when parsing fails
+- Implemented separate methods for extracting different types of information
+
+**Learning**: Vision-language model outputs can be inconsistent, so robust parsing is essential.
+
+## Tool and Library Dependencies
+
+**Best Practice**: Clearly document all dependencies and their versions.
+
+**Implementation**:
+- Created a requirements.txt file with specific version requirements
+- Added documentation on how to install the LLaVA model from the local repository
+
+**Learning**: Managing dependencies is crucial for reproducibility and smooth deployment.
+
+## Performance Considerations
+
+**Best Practice**: Be mindful of resource usage, especially GPU memory.
+
+**Implementation**:
+- Added logging of CUDA availability and device information
+- Implemented a fallback to mock data when GPU is not available
+- Set reasonable limits on token generation to avoid excessive resource use
+
+**Learning**: Always monitor and log resource usage to identify potential performance bottlenecks.
 
 ## Streamlit in Lightning Studios
 
@@ -357,3 +418,26 @@ The solution addresses the root cause by ensuring proper position embedding conf
 - Added specific error handling for image format issues
 - Enhanced logging to provide clearer information about the image processing steps
 - Updated documentation to reflect that MiniCPM-V handles its own image transformation internally 
+
+### Issue: LLaVA Import Path Issues
+
+**Problem**: The LLaVA repository is cloned to the root directory but is not in the Python path, causing import errors when trying to use its modules.
+
+**Solution**:
+- Added code to the beginning of `inference.py` to add the LLaVA directory to the system path:
+  ```python
+  # Add the LLaVA directory to the path
+  root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+  llava_dir = os.path.join(root_dir, "LLaVA")
+  if llava_dir not in sys.path:
+      sys.path.append(llava_dir)
+  ```
+- Created clear documentation in the README file explaining how to clone the LLaVA repository
+- Added a README in the LLaVA directory explaining its purpose and setup
+- Made sure the LLaVA directory would be included in version control
+
+**Learning**: 
+1. When integrating external repositories, make sure the import paths are correctly set up
+2. Document the setup process clearly for other developers
+3. When possible, use package installation with `pip install -e .` rather than manual path manipulation
+4. Consider using relative imports when appropriate to reduce dependency on path configuration 

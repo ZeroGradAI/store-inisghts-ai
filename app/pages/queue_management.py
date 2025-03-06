@@ -20,7 +20,7 @@ model = get_model()
 
 def analyze_queue_management(image):
     """
-    Analyze queue management using the MiniCPM-o model.
+    Analyze queue management using the LLaVA model.
     Uses the actual model if CUDA is available, otherwise uses mock data.
     """
     # Show a progress bar to indicate processing

@@ -1,4 +1,5 @@
 import os
+import sys
 import torch
 import random
 import time
@@ -8,6 +9,13 @@ import numpy as np
 import logging
 import signal
 import traceback
+
+# Add the LLaVA directory to the path
+root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+llava_dir = os.path.join(root_dir, "LLaVA")
+if llava_dir not in sys.path:
+    sys.path.append(llava_dir)
+    print(f"Added LLaVA directory to path: {llava_dir}")
 
 # Configure logging
 logging.basicConfig(
@@ -23,16 +31,12 @@ class ModelInference:
         """Initialize the model inference class."""
         self.model = None
         self.tokenizer = None
-        self.use_small_model = use_small_model
+        self.image_processor = None
         self.is_mock = not torch.cuda.is_available()  # Set based on CUDA availability initially
         
-        # Set the model name based on the use_small_model flag
-        if use_small_model:
-            self.model_name = "microsoft/phi-2"
-            logger.info(f"Using small model: {self.model_name}")
-        else:
-            self.model_name = "openbmb/MiniCPM-V"
-            logger.info(f"Using standard model: {self.model_name}")
+        # Set the model name
+        self.model_name = "liuhaotian/llava-v1.5-7b"
+        logger.info(f"Using model: {self.model_name}")
         
         # Check if CUDA is available
         if torch.cuda.is_available():
@@ -54,73 +58,38 @@ class ModelInference:
             self.is_mock = True  # Redundant but explicit
     
     def _load_model(self):
-        """Load the MiniCPM-V model."""
+        """Load the LLaVA model."""
         logger.info("Loading model...")
-        
-        # Check if torchvision is available
+
         try:
-            import torchvision
-            logger.info(f"Torchvision version: {torchvision.__version__}")
-        except ImportError:
-            logger.error("Torchvision is not installed. Please install it with 'pip install torchvision'.")
-            self.is_mock = True
-            return
-        
-        # Import necessary classes
-        from transformers import AutoModel, AutoTokenizer
-        
-        try:
-            # Load the model with trust_remote_code=True and other required parameters
-            logger.info(f"Loading model from Hugging Face: {self.model_name}")
+            from llava.constants import IMAGE_TOKEN_INDEX
+            from llava.model.builder import load_pretrained_model
+            from llava.utils import disable_torch_init
+            from llava.mm_utils import get_model_name_from_path
+
+            # Disable torch init to avoid unnecessary initializations
+            disable_torch_init()
             
             # Set device
             device = "cuda" if torch.cuda.is_available() else "cpu"
             logger.info(f"Using device: {device}")
             
-            # Determine the dtype to use consistently
-            # Use float32 for both CPU and CUDA to avoid dtype mismatches
-            dtype = torch.float32
-            logger.info(f"Using dtype: {dtype}")
+            # Get the model name and load the model
+            model_name = get_model_name_from_path(self.model_name)
+            logger.info(f"Loading model {model_name} from Hugging Face")
             
-            # Load tokenizer first
-            logger.info("Loading tokenizer...")
-            tokenizer = AutoTokenizer.from_pretrained(
+            # Load model components using LLaVA's loader
+            tokenizer, model, image_processor, context_len = load_pretrained_model(
                 self.model_name,
-                trust_remote_code=True
+                model_base=None,
+                model_name=model_name
             )
             
-            # Load the model with specific parameters for handling position embeddings
-            logger.info("Loading model with position embedding configuration...")
-            
-            # Set configuration to handle position embeddings correctly
-            from transformers import AutoConfig
-            config = AutoConfig.from_pretrained(
-                self.model_name, 
-                trust_remote_code=True
-            )
-            
-            # If the config has position embedding settings, configure them
-            if hasattr(config, 'max_position_embeddings'):
-                logger.info(f"Original max_position_embeddings: {config.max_position_embeddings}")
-                # Ensure sufficient position embedding capacity
-                config.max_position_embeddings = max(config.max_position_embeddings, 512)
-                logger.info(f"Updated max_position_embeddings: {config.max_position_embeddings}")
-            
-            # Load model with updated config
-            model = AutoModel.from_pretrained(
-                self.model_name,
-                config=config,
-                trust_remote_code=True,
-                torch_dtype=dtype,
-                low_cpu_mem_usage=True,
-            )
-            
-            # Move model to device with consistent dtype
-            logger.info(f"Moving model to {device} with dtype {dtype}...")
-            model = model.to(device=device, dtype=dtype)
-            
-            # Set model to evaluation mode
-            model.eval()
+            # Store model components
+            self.tokenizer = tokenizer
+            self.model = model
+            self.image_processor = image_processor
+            self.context_len = context_len
             
             # Log device information
             if torch.cuda.is_available():
@@ -128,42 +97,7 @@ class ModelInference:
                 logger.info(f"Model loaded on CUDA device: {device_name}")
             else:
                 logger.info("Model loaded on CPU")
-            
-            # Test if the model can handle position embeddings correctly
-            logger.info("Testing model's position embedding handling...")
-            try:
-                # Create a small test tensor
-                dummy_input = torch.ones(1, 3, 224, 224, device=device, dtype=dtype)
-                dummy_text = tokenizer("This is a test", return_tensors="pt").to(device)
                 
-                # Check if model has position embedding attributes
-                has_position_embedding = False
-                
-                # Different models might store position embeddings in different attributes
-                if hasattr(model, 'get_position_embeddings'):
-                    logger.info("Model has get_position_embeddings method")
-                    has_position_embedding = True
-                elif hasattr(model, 'position_embeddings'):
-                    logger.info("Model has position_embeddings attribute")
-                    has_position_embedding = True
-                elif hasattr(model, 'embeddings') and hasattr(model.embeddings, 'position_embeddings'):
-                    logger.info("Model has embeddings.position_embeddings attribute")
-                    has_position_embedding = True
-                
-                if has_position_embedding:
-                    logger.info("Model is configured for position embeddings")
-                else:
-                    logger.info("Model does not have explicit position embedding attributes")
-                    
-                logger.info("Position embedding test complete")
-            except Exception as test_e:
-                logger.warning(f"Position embedding test failed: {str(test_e)}")
-                # This is just a test, we still continue with the model loading
-            
-            # Store model and tokenizer
-            self.model = model
-            self.tokenizer = tokenizer
-            
             logger.info("Model and tokenizer loaded successfully")
             
         except Exception as e:
@@ -184,20 +118,20 @@ class ModelInference:
         
         try:
             # Import required libraries
-            from PIL import Image
+            from PIL import Image as PILImage
             
             # Load the image if a path is provided
             if image_path:
                 logger.info(f"Loading image from path: {image_path}")
-                image = Image.open(image_path)
+                image = PILImage.open(image_path)
             
             # Ensure we have a PIL Image
-            if not isinstance(image, Image.Image):
+            if not isinstance(image, PILImage.Image):
                 logger.warning("Image is not a PIL Image, attempting conversion")
                 try:
                     if isinstance(image, np.ndarray):
                         logger.info("Converting numpy array to PIL Image")
-                        image = Image.fromarray(image)
+                        image = PILImage.fromarray(image)
                     else:
                         logger.error(f"Unsupported image type: {type(image)}")
                         return None
@@ -210,19 +144,10 @@ class ModelInference:
                 logger.info(f"Converting image from {image.mode} to RGB")
                 image = image.convert("RGB")
             
-            # Log original image size
             logger.info(f"Original image size: {image.size}")
             
-            # Resize the image to 224x224 which is standard for vision models
-            # but keep it as a PIL Image since that's what MiniCPM-V expects
-            target_size = (224, 224)
-            logger.info(f"Resizing image to {target_size}")
-            processed_image = image.resize(target_size, Image.BICUBIC)
-            
-            logger.info(f"Processed image size: {processed_image.size}")
-            
-            # Return the PIL Image directly - do NOT convert to tensor
-            return processed_image
+            # Return the PIL Image directly
+            return image
             
         except Exception as e:
             logger.error(f"Error processing image: {str(e)}")
@@ -245,6 +170,10 @@ class ModelInference:
             return random.choice(mock_responses)
         
         try:
+            from llava.constants import IMAGE_TOKEN_INDEX
+            from llava.conversation import conv_templates
+            from llava.mm_utils import process_images, tokenizer_image_token
+            
             # Process the image to get a PIL Image
             logger.info("Processing image for model inference")
             processed_image = self._process_image(image=image)
@@ -257,132 +186,99 @@ class ModelInference:
                 logger.info("Using mock image for response generation")
                 return "This is a mock response for image analysis."
             
-            # Log processed image information
-            logger.info(f"Processed image size: {processed_image.size}")
+            # Determine conversation mode based on model name
+            if "llama-2" in self.model_name.lower():
+                conv_mode = "llava_llama_2"
+            elif "mistral" in self.model_name.lower():
+                conv_mode = "mistral_instruct"
+            elif "v1.6-34b" in self.model_name.lower():
+                conv_mode = "chatml_direct"
+            elif "v1" in self.model_name.lower():
+                conv_mode = "llava_v1"
+            elif "mpt" in self.model_name.lower():
+                conv_mode = "mpt"
+            else:
+                conv_mode = "llava_v0"
+                
+            logger.info(f"Using conversation mode: {conv_mode}")
             
-            # Make sure we're using English in the prompt
-            if "in English" not in prompt:
-                prompt = f"{prompt} Please respond in English."
+            # Create conversation template and add user message
+            conv = conv_templates[conv_mode].copy()
             
-            # Create the message format expected by the model
-            msgs = [{'role': 'user', 'content': prompt}]
-            logger.info(f"Prepared messages: {msgs}")
+            # For LLaVA v1.5, we need to add the image token before the prompt
+            from llava.constants import DEFAULT_IMAGE_TOKEN, DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN
             
-            # Get the model's current device
-            device = next(self.model.parameters()).device
-            logger.info(f"Model is on device: {device}")
+            # Add image token to prompt based on model configuration
+            if hasattr(self.model.config, 'mm_use_im_start_end') and self.model.config.mm_use_im_start_end:
+                image_token = DEFAULT_IM_START_TOKEN + DEFAULT_IMAGE_TOKEN + DEFAULT_IM_END_TOKEN
+                user_message = image_token + "\n" + prompt
+            else:
+                user_message = DEFAULT_IMAGE_TOKEN + "\n" + prompt
+                
+            # Add the message to the conversation
+            conv.append_message(conv.roles[0], user_message)
+            conv.append_message(conv.roles[1], None)
+            prompt = conv.get_prompt()
             
-            # Set parameters for the model's generation
-            generation_config = {
-                'sampling': True,
-                'temperature': 0.7,
-                'top_p': 0.9,
-                'max_new_tokens': 512,
-            }
+            # Process the image
+            images = [processed_image]
+            image_sizes = [processed_image.size]
+            images_tensor = process_images(
+                images,
+                self.image_processor,
+                self.model.config
+            ).to(self.model.device, dtype=torch.float16)
+            
+            # Prepare input IDs
+            input_ids = tokenizer_image_token(
+                prompt, self.tokenizer, IMAGE_TOKEN_INDEX, return_tensors="pt"
+            ).unsqueeze(0).to(self.model.device)
             
             # Start timing the generation
             start_time = time.time()
             
-            # Use a try-except block to handle potential position embedding errors
-            try:
-                logger.info("Calling model.chat method...")
-                # MiniCPM-V expects a PIL Image and will handle the transformation internally
-                response, _, _ = self.model.chat(
-                    image=processed_image,  # Pass the PIL Image directly
-                    msgs=msgs,
-                    context=None,
-                    tokenizer=self.tokenizer,
-                    **generation_config
+            # Generate response with the model
+            with torch.inference_mode():
+                logger.info("Generating response...")
+                output_ids = self.model.generate(
+                    input_ids,
+                    images=images_tensor,
+                    image_sizes=image_sizes,
+                    do_sample=True,
+                    temperature=0.2,
+                    top_p=0.7,
+                    max_new_tokens=512,
+                    use_cache=True,
                 )
                 
-                # Log successful generation
-                elapsed_time = time.time() - start_time
-                logger.info(f"Response generated in {elapsed_time:.2f} seconds")
-                logger.info(f"Response preview: {response[:100]}...")
+            # Decode the generated response
+            response = self.tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
+            
+            # Log successful generation
+            elapsed_time = time.time() - start_time
+            logger.info(f"Response generated in {elapsed_time:.2f} seconds")
+            logger.info(f"Response preview: {response[:100]}...")
+            
+            return response
                 
-                return response
-                
-            except IndexError as e:
-                # Handle the specific "index is out of bounds" error for position embeddings
-                error_msg = str(e)
-                logger.error(f"IndexError in model.chat: {error_msg}")
-                
-                if "index is out of bounds" in error_msg:
-                    logger.info("Position embedding error detected - attempting alternative approach")
-                    
-                    try:
-                        # Try with direct tokenization and generation
-                        logger.info("Attempting direct tokenization and generation")
-                        
-                        # Tokenize the prompt
-                        inputs = self.tokenizer(prompt, return_tensors="pt").to(device)
-                        
-                        # Create explicit position IDs
-                        seq_len = inputs.input_ids.shape[1]
-                        position_ids = torch.arange(seq_len, dtype=torch.long, device=device).unsqueeze(0)
-                        
-                        # Generate with explicit position ids
-                        with torch.no_grad():
-                            outputs = self.model.generate(
-                                **inputs,
-                                position_ids=position_ids,
-                                max_new_tokens=256,
-                                do_sample=True,
-                                temperature=0.7
-                            )
-                        
-                        # Decode the generated output
-                        direct_response = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
-                        logger.info(f"Direct generation successful: {direct_response[:100]}...")
-                        
-                        return direct_response
-                    except Exception as direct_error:
-                        logger.error(f"Direct generation failed: {str(direct_error)}")
-                
-                # If all attempts fail, return a descriptive error
-                return "I apologize, but I'm having difficulty analyzing this image. Please try with a different image or question."
-                
-            except TypeError as e:
-                # Handle type errors specifically (like the PIL Image issue)
-                error_msg = str(e)
-                logger.error(f"TypeError in model.chat: {error_msg}")
-                
-                if "pic should be PIL Image" in error_msg:
-                    logger.error("Image format error: Model expects PIL Image")
-                    return "Error: The model is having trouble processing the image format. Please try a different image."
-                
-                return "An error occurred while processing your request. Please try again with a different image or question."
-                
-            except Exception as other_e:
-                # Handle other exceptions
-                logger.error(f"Other error in model.chat: {str(other_e)}")
-                logger.error("Stack trace:", exc_info=True)
-                
-                return "An error occurred while processing your request. Please try again with a different image or question."
-                
-        except Exception as outer_e:
-            # Handle any other exceptions in the overall function
-            logger.error(f"Error in _generate_response: {str(outer_e)}")
+        except Exception as e:
+            logger.error(f"Error in _generate_response: {str(e)}")
             logger.error("Stack trace:", exc_info=True)
             
-            return f"Error: {str(outer_e)}"
+            return f"Error: {str(e)}"
 
     def analyze_gender_demographics(self, image):
-        """Analyze gender demographics in the image using the MiniCPM-V model."""
+        """Analyze gender demographics in the image using the LLaVA model."""
         logger.info("Starting gender demographics analysis")
         
         if self.is_mock:
             logger.info("Using mock data for gender demographics analysis")
             # Return a mock analysis result
             return {
-                'men': 1,
-                'women': 3,
-                'products': ['Fresh produce', 'Grocery items'],
-                'insights': [
-                    'Customers are actively shopping',
-                    'Several customers are using shopping carts',
-                    'The store layout encourages browsing'
-                ],
+                'men_count': 1,
+                'women_count': 3,
+                'products': 'Fresh produce, Grocery items',
+                'insights': 'Customers are actively shopping, Several customers are using shopping carts, The store layout encourages browsing',
                 'is_mock': True
             }
         
@@ -426,8 +322,8 @@ class ModelInference:
                 
             # Return the analysis results
             return {
-                'men': men_count,
-                'women': women_count,
+                'men_count': men_count,
+                'women_count': women_count,
                 'products': products,
                 'insights': insights,
                 'is_mock': False
@@ -442,14 +338,10 @@ class ModelInference:
         """Provide a reliable fallback for gender demographics analysis."""
         logger.info("Using fallback gender demographics data")
         return {
-            'men': 1,
-            'women': 3,
-            'products': ['Fresh produce', 'Grocery items', 'Shopping carts'],
-            'insights': [
-                'Customers are actively shopping and browsing products',
-                'Some customers are using shopping carts, indicating larger purchases',
-                'The store layout appears to encourage browsing through multiple aisles'
-            ],
+            'men_count': 1,
+            'women_count': 3,
+            'products': 'Fresh produce, Grocery items, Shopping carts',
+            'insights': 'Customers are actively shopping and browsing products, Some customers are using shopping carts, indicating larger purchases, The store layout appears to encourage browsing through multiple aisles',
             'is_mock': True
         }
 
@@ -605,7 +497,7 @@ class ModelInference:
     
     def _extract_products(self, response):
         """Extract products from the model response."""
-        products = []
+        products = ""
         
         try:
             # Try to extract products information
@@ -613,31 +505,22 @@ class ModelInference:
             if products_match:
                 products_text = products_match.group(1).strip()
                 
-                # Split by common separators and clean up
-                if ',' in products_text:
-                    products = [p.strip() for p in products_text.split(',')]
-                elif '\n-' in products_text:
-                    products = [p.strip().lstrip('-') for p in products_text.split('\n-')]
-                elif '-' in products_text:
-                    products = [p.strip().lstrip('-') for p in products_text.split('-')]
-                else:
-                    products = [products_text]
+                # Clean up and format products text
+                products = products_text.replace('\n', ', ').replace(' - ', ', ').replace('-', ', ')
                 
-                # Remove empty items and limit to 5 products
-                products = [p for p in products if p][:5]
+                # If empty, use default
+                if not products:
+                    products = 'Fresh produce, Grocery items'
         
         except Exception as e:
             logger.error(f"Error extracting products: {str(e)}")
-        
-        # Default products if none were extracted
-        if not products:
-            products = ['Fresh produce', 'Grocery items']
+            products = 'Fresh produce, Grocery items'
         
         return products
     
     def _extract_insights(self, response):
         """Extract insights from the model response."""
-        insights = []
+        insights = ""
         
         try:
             # Try to extract insights
@@ -645,33 +528,22 @@ class ModelInference:
             if insights_match:
                 insights_text = insights_match.group(1).strip()
                 
-                # Split by common separators and clean up
-                if ',' in insights_text:
-                    insights = [i.strip() for i in insights_text.split(',')]
-                elif '\n-' in insights_text:
-                    insights = [i.strip().lstrip('-') for i in insights_text.split('\n-')]
-                elif '-' in insights_text:
-                    insights = [i.strip().lstrip('-') for i in insights_text.split('-')]
-                else:
-                    insights = [insights_text]
+                # Clean up and format insights text
+                insights = insights_text.replace('\n', ', ').replace(' - ', ', ').replace('-', ', ')
                 
-                # Remove empty items and limit to 3 insights
-                insights = [i for i in insights if i][:3]
+                # If empty, use default
+                if not insights:
+                    insights = 'Customers are actively shopping, Some customers are using shopping carts indicating larger purchases'
         
         except Exception as e:
             logger.error(f"Error extracting insights: {str(e)}")
-        
-        # Default insights if none were extracted
-        if not insights:
-            insights = [
-                'Customers are actively shopping and browsing products',
-                'Some customers are using shopping carts, indicating larger purchases'
-            ]
+            insights = 'Customers are actively shopping, Some customers are using shopping carts indicating larger purchases'
         
         return insights
 
-def get_model(use_small_model=False):
+def get_model(use_small_model=True):
     """Get a singleton instance of the ModelInference class."""
     if not hasattr(get_model, "instance") or get_model.instance is None:
-        get_model.instance = ModelInference(use_small_model=use_small_model)
+        # Ignore the use_small_model parameter since we're only using LLaVA now
+        get_model.instance = ModelInference(use_small_model=False)
     return get_model.instance 

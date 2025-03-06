@@ -1,29 +1,39 @@
-# Store Insights AI - Current State
+# Current State: Store Insights AI
 
-## Project Status: Ready for Deployment
+## Project Status: In Progress
 
-### Completed Tasks
-- [x] Created project documentation structure
-- [x] Defined application requirements and features
-- [x] Set up the Streamlit application structure
-- [x] Created the main dashboard
-- [x] Implemented the Gender Demography module
-- [x] Implemented the Queue Management module
-- [x] Created model inference structure for MiniCPM-o integration
-- [x] Added utility functions for image processing
-- [x] Established directory structure for sample images
-- [x] Integrated with MiniCPM-o model with fallback to mock data
-- [x] Added GPU detection and conditional model loading
+This document tracks the current state of the Store Insights AI project, including completed tasks, in-progress work, and known issues.
 
-### In Progress
-- [ ] Testing with sample store images
+## Completed Tasks
 
-### Pending
-- [ ] Deploying to Pytorch Lightning Studio hub with GPU support
-- [ ] Fine-tuning model prompts for better accuracy
+- [x] Refactored inference.py to use LLaVA model instead of MiniCPM/Phi
+- [x] Updated model references throughout the codebase
+- [x] Created README.md with setup instructions and project overview
+- [x] Updated requirements.txt with necessary dependencies
+- [x] Created feature-design.md with detailed architecture description
+- [x] Ensured backward compatibility with existing app structure
+- [x] Implemented proper image processing for the LLaVA model
+- [x] Implemented response generation and parsing from LLaVA output
+- [x] Maintained fallback mechanism for systems without GPU
+- [x] Fixed import paths to properly include the LLaVA directory
+- [x] Updated documentation to include LLaVA repository setup instructions
+
+## In Progress
+
+- [ ] Testing full application functionality with various image types
+- [ ] Optimizing inference performance for faster analysis
+- [ ] Exploring the creation of sample images directory for testing
+
+## Known Issues
+
+- The application requires a CUDA-compatible GPU with sufficient memory for optimal performance.
+- LLaVA model needs to be installed from the local repository first.
+- Response parsing is dependent on the model output format, which may change with different prompts or model versions.
 
 ## Next Steps
-1. Test the application with sample images
-2. Deploy to Pytorch Lightning Studio hub
-3. Fine-tune prompts for better accuracy
-4. Conduct end-to-end testing in the GPU environment 
+
+1. Test the application with a variety of retail store images
+2. Create a sample image directory with test images
+3. Consider fine-tuning the model on retail-specific data
+4. Add unit tests for critical components
+5. Add error handling for edge cases 

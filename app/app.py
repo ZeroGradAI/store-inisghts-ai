@@ -1,3 +1,4 @@
+# streamlit run --server.port 8501 store-inisghts-ai/app/app.py
 import streamlit as st
 import os
 import pandas as pd

@@ -151,8 +151,8 @@ class ModelInference:
                 logger.error("Failed to process image")
                 return self._get_fallback_gender_demographics()
             
-            # Craft prompt for gender demographics analysis
-            prompt = "USER: <image>\nHow many men and women do you see in the image and what products are they looking at?\nASSISTANT:"
+            # Craft prompt for gender demographics analysis with JSON response format
+            prompt = "USER: <image>\nAnalyze this retail store image for gender demographics. How many men and women do you see in the image and what products are they looking at? Please return your analysis as a JSON object with the following keys: men_count, women_count, products (list of products they are looking at), insights (your analysis of what this means for the store).\nASSISTANT:"
             
             # Generate response
             response = self._generate_response(processed_image, prompt)
@@ -162,28 +162,23 @@ class ModelInference:
             logger.info(response)
             logger.info("========== END OF RAW MODEL RESPONSE ==========")
             
-            # Extract gender demographics from the response
-            gender_data = self._extract_gender_counts(response)
-            products = self._extract_products(response)
-            insights = self._extract_insights(response)
+            # Extract JSON data from the response
+            result = self._extract_json_data(response, "gender_demographics")
             
-            # Combine all data
-            result = {
-                'men_count': gender_data.get('men_count', 0),
-                'women_count': gender_data.get('women_count', 0),
-                'products': products,
-                'insights': insights,
-                'raw_response': response,
-                'is_mock': False
-            }
+            if not result:
+                logger.warning("Failed to extract gender demographics from model response")
+                return self._get_fallback_gender_demographics()
             
+            # Add raw response to the results
+            result['raw_response'] = response
+            result['is_mock'] = False
             return result
             
         except Exception as e:
             logger.error(f"Error analyzing gender demographics: {str(e)}")
             logger.error("Stack trace:", exc_info=True)
             return self._get_fallback_gender_demographics()
-    
+
     def _get_fallback_gender_demographics(self):
         """Provide a reliable fallback for gender demographics analysis."""
         logger.info("Using fallback gender demographics data")
@@ -221,7 +216,7 @@ class ModelInference:
                 return self._get_fallback_queue_management()
             
             # Craft prompt for queue analysis
-            prompt = "USER: <image>\nAnalyze this retail store image for queue management. How many checkout counters are open? Are there any customers waiting in line? If so, how many and is the queue management efficient?\nASSISTANT:"
+            prompt = "USER: <image>\nAnalyze this retail store image for queue management. Get a count of how many counters are open and how many are closed? Also how many customers are waiting in line across all counters?. Any recommendations for improving the queue management? You should return a json object with the following keys: open_counters, closed_counters, total_counters, customers_in_queue, avg_wait_time, queue_efficiency, overcrowded_counters, recommendations\nASSISTANT:"
             
             # Generate response
             response = self._generate_response(processed_image, prompt)
@@ -231,8 +226,8 @@ class ModelInference:
             logger.info(response)
             logger.info("========== END OF RAW MODEL RESPONSE ==========")
             
-            # Extract queue management information
-            result = self._extract_queue_info(response)
+            # Extract JSON data from the response
+            result = self._extract_json_data(response, "queue_management")
             
             if not result:
                 logger.warning("Failed to extract queue management data from model response")
@@ -248,6 +243,115 @@ class ModelInference:
             logger.error("Stack trace:", exc_info=True)
             return self._get_fallback_queue_management()
     
+    def _extract_json_data(self, response, analysis_type):
+        """
+        Extract JSON data from the model response.
+        
+        Args:
+            response: The raw response from the model
+            analysis_type: Type of analysis ('gender_demographics' or 'queue_management')
+            
+        Returns:
+            A dictionary with the extracted data or None if extraction failed
+        """
+        try:
+            # Extract JSON portion from the response
+            # First try to find JSON block within code blocks (```json ... ```)
+            json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response, re.DOTALL)
+            
+            if json_match:
+                json_str = json_match.group(1)
+                logger.info(f"Found JSON in code block: {json_str[:100]}...")
+            else:
+                # Try to find any JSON object in the response
+                json_match = re.search(r'(\{.*\})', response, re.DOTALL)
+                if json_match:
+                    json_str = json_match.group(1)
+                    logger.info(f"Found JSON object: {json_str[:100]}...")
+                else:
+                    # If no JSON found, try to use the whole response
+                    json_str = response
+                    logger.warning("No JSON object found in response. Attempting to parse entire response.")
+            
+            # Parse the JSON data
+            try:
+                # Remove any markdown formatting or extra text
+                clean_json_str = re.sub(r'[\n\r\t]', ' ', json_str)
+                
+                # Try to validate and parse the JSON
+                data = json.loads(clean_json_str)
+                logger.info(f"Successfully parsed JSON data with keys: {list(data.keys())}")
+                
+                # For the specific analysis types, ensure required fields
+                if analysis_type == "gender_demographics":
+                    # Ensure required fields exist
+                    required_fields = ["men_count", "women_count", "products", "insights"]
+                    for field in required_fields:
+                        if field not in data:
+                            logger.warning(f"Required field '{field}' missing from gender demographics JSON")
+                            data[field] = "Not specified" if field in ["products", "insights"] else 0
+                
+                elif analysis_type == "queue_management":
+                    # Ensure required fields exist
+                    required_fields = ["open_counters", "closed_counters", "total_counters", 
+                                     "customers_in_queue", "avg_wait_time", "queue_efficiency", 
+                                     "overcrowded_counters", "recommendations"]
+                    for field in required_fields:
+                        if field not in data:
+                            logger.warning(f"Required field '{field}' missing from queue management JSON")
+                            if field in ["open_counters", "closed_counters", "total_counters", "customers_in_queue"]:
+                                data[field] = 0
+                            elif field == "overcrowded_counters":
+                                data[field] = False
+                            else:
+                                data[field] = "Not specified"
+                    
+                    # Calculate total_counters if needed
+                    if data["total_counters"] == 0 and (data["open_counters"] > 0 or data["closed_counters"] > 0):
+                        data["total_counters"] = data["open_counters"] + data["closed_counters"]
+                        logger.info(f"Calculated total_counters: {data['total_counters']}")
+                    
+                    # Convert overcrowded_counters to boolean if it's a list or string
+                    if not isinstance(data["overcrowded_counters"], bool):
+                        if isinstance(data["overcrowded_counters"], list) and len(data["overcrowded_counters"]) > 0:
+                            logger.info(f"Found overcrowded counters: {data['overcrowded_counters']}")
+                            data["overcrowded_counters"] = True
+                        elif isinstance(data["overcrowded_counters"], str) and data["overcrowded_counters"] != "None" and data["overcrowded_counters"] != "":
+                            logger.info(f"Found overcrowded counters: {data['overcrowded_counters']}")
+                            data["overcrowded_counters"] = True
+                        else:
+                            data["overcrowded_counters"] = False
+                
+                return data
+                
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse JSON: {str(e)}")
+                logger.error(f"JSON string attempted to parse: {json_str[:500]}")
+                
+                # If JSON parsing fails, fall back to the old extraction methods
+                if analysis_type == "gender_demographics":
+                    logger.info("Falling back to regex extraction for gender demographics")
+                    gender_data = self._extract_gender_counts(response)
+                    products = self._extract_products(response)
+                    insights = self._extract_insights(response)
+                    
+                    return {
+                        'men_count': gender_data.get('men_count', 0),
+                        'women_count': gender_data.get('women_count', 0),
+                        'products': products,
+                        'insights': insights
+                    }
+                elif analysis_type == "queue_management":
+                    logger.info("Falling back to regex extraction for queue management")
+                    return self._extract_queue_info(response)
+                
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error extracting JSON data: {str(e)}")
+            logger.error("Stack trace:", exc_info=True)
+            return None
+
     def _get_fallback_queue_management(self):
         """Provide a reliable fallback for queue management analysis."""
         logger.info("Using fallback queue management data")

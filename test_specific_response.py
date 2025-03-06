@@ -144,6 +144,7 @@ def extract_queue_info(response):
             'customers_in_queue': 0,
             'avg_wait_time': 'Not specified',
             'queue_efficiency': 'Not specified',
+            'overcrowded_counters': False,
             'recommendations': 'Not specified'
         }
         
@@ -196,6 +197,39 @@ def extract_queue_info(response):
         if efficiency_match:
             result['queue_efficiency'] = efficiency_match.group(1)
         
+        # Determine if counters are overcrowded
+        # We'll say it's overcrowded if there are more than 3 customers per open counter
+        if result['open_counters'] > 0 and result['customers_in_queue'] > 0:
+            customers_per_counter = result['customers_in_queue'] / result['open_counters']
+            result['overcrowded_counters'] = customers_per_counter > 3
+            
+            # Add wait time estimation based on crowding
+            if customers_per_counter <= 1:
+                result['avg_wait_time'] = 'Less than 2 minutes'
+            elif customers_per_counter <= 2:
+                result['avg_wait_time'] = '2-5 minutes'
+            elif customers_per_counter <= 3:
+                result['avg_wait_time'] = '5-10 minutes'
+            else:
+                result['avg_wait_time'] = 'More than 10 minutes'
+            
+            # Add recommendations based on crowding
+            if result['overcrowded_counters']:
+                result['recommendations'] = 'Open more checkout counters to reduce wait times, Consider implementing a queue management system'
+            else:
+                result['recommendations'] = 'Current queue management is efficient, Monitor customer flow during peak hours'
+        else:
+            # Default values if we couldn't extract meaningful data
+            result['overcrowded_counters'] = False
+            result['avg_wait_time'] = 'Not enough data'
+            result['recommendations'] = 'Ensure adequate staffing during peak hours'
+        
+        # Look for explicit mentions of overcrowding in the text
+        if 'overcrowd' in response.lower() or 'long wait' in response.lower() or 'long line' in response.lower():
+            result['overcrowded_counters'] = True
+            if 'recommendations' not in result or result['recommendations'] == 'Not specified':
+                result['recommendations'] = 'Open more checkout counters to reduce wait times'
+        
         # If we couldn't extract structured information, include the full response
         result['full_response'] = response
         return result
@@ -209,6 +243,7 @@ def extract_queue_info(response):
             'customers_in_queue': 4,
             'avg_wait_time': '3-5 minutes',
             'queue_efficiency': 'Moderate',
+            'overcrowded_counters': False,
             'recommendations': 'Consider opening additional checkout lanes during peak hours'
         }
 

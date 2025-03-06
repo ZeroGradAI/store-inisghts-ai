@@ -13,6 +13,7 @@ def extract_queue_info(response):
             'customers_in_queue': 0,
             'avg_wait_time': 'Not specified',
             'queue_efficiency': 'Not specified',
+            'overcrowded_counters': False,
             'recommendations': 'Not specified'
         }
         
@@ -75,6 +76,43 @@ def extract_queue_info(response):
             result['queue_efficiency'] = efficiency_match.group(1)
             print(f"Matched queue efficiency: {result['queue_efficiency']}")
         
+        # Determine if counters are overcrowded
+        # We'll say it's overcrowded if there are more than 3 customers per open counter
+        if result['open_counters'] > 0 and result['customers_in_queue'] > 0:
+            customers_per_counter = result['customers_in_queue'] / result['open_counters']
+            result['overcrowded_counters'] = customers_per_counter > 3
+            print(f"Customers per counter: {customers_per_counter:.1f}")
+            print(f"Overcrowded: {result['overcrowded_counters']}")
+            
+            # Add wait time estimation based on crowding
+            if customers_per_counter <= 1:
+                result['avg_wait_time'] = 'Less than 2 minutes'
+            elif customers_per_counter <= 2:
+                result['avg_wait_time'] = '2-5 minutes'
+            elif customers_per_counter <= 3:
+                result['avg_wait_time'] = '5-10 minutes'
+            else:
+                result['avg_wait_time'] = 'More than 10 minutes'
+            print(f"Estimated wait time: {result['avg_wait_time']}")
+            
+            # Add recommendations based on crowding
+            if result['overcrowded_counters']:
+                result['recommendations'] = 'Open more checkout counters to reduce wait times, Consider implementing a queue management system'
+            else:
+                result['recommendations'] = 'Current queue management is efficient, Monitor customer flow during peak hours'
+        else:
+            # Default values if we couldn't extract meaningful data
+            result['overcrowded_counters'] = False
+            result['avg_wait_time'] = 'Not enough data'
+            result['recommendations'] = 'Ensure adequate staffing during peak hours'
+        
+        # Look for explicit mentions of overcrowding in the text
+        if 'overcrowd' in response.lower() or 'long wait' in response.lower() or 'long line' in response.lower():
+            result['overcrowded_counters'] = True
+            print("Detected explicit mention of overcrowding or long wait")
+            if 'recommendations' not in result or result['recommendations'] == 'Not specified':
+                result['recommendations'] = 'Open more checkout counters to reduce wait times'
+        
         print(f"Final result: {result}")
         return result
         
@@ -87,6 +125,7 @@ def extract_queue_info(response):
             'customers_in_queue': 4,
             'avg_wait_time': '3-5 minutes',
             'queue_efficiency': 'Moderate',
+            'overcrowded_counters': False,
             'recommendations': 'Consider opening additional checkout lanes during peak hours'
         }
 
@@ -105,6 +144,7 @@ def test_queue_extraction(sample_text):
     print(f"  - closed_counters: {'✓' if 'closed_counters' in results else '✗'}")
     print(f"  - total_counters: {'✓' if 'total_counters' in results else '✗'}")
     print(f"  - customers_in_queue: {'✓' if 'customers_in_queue' in results else '✗'}")
+    print(f"  - overcrowded_counters: {'✓' if 'overcrowded_counters' in results else '✗'}")
     
     return results
 
@@ -115,7 +155,8 @@ if __name__ == "__main__":
         "I can see 2 checkout counters with approximately 7 customers in the queue. Wait time appears to be around 5-10 minutes.",
         "The store has 4 total counters but only 2 are open, with 3 customers in line, suggesting efficient queue management.",
         "There's only 1 open checkout counter and 2 closed counters with 8 customers waiting, indicating poor queue management.",
-        "The image shows 3 checkout counters with 6 customers distributed evenly among them."
+        "The image shows 3 checkout counters with 6 customers distributed evenly among them.",
+        "The store has long lines at the checkout with customers waiting for a long time, suggesting overcrowded counters."
     ]
     
     for i, example in enumerate(test_examples):

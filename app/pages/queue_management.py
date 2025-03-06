@@ -72,9 +72,18 @@ def show():
                 st.metric("🔢 Total Counters", results["total_counters"])
                 st.metric("✅ Open Counters", results["open_counters"])
                 st.metric("❌ Closed Counters", results["closed_counters"])
+                st.metric("🧍 Customers in Queue", results["customers_in_queue"])
                 
-                if results["overcrowded_counters"]:
-                    st.warning(f"⚠️ Overcrowded counters: {', '.join(map(str, results['overcrowded_counters']))}")
+                # Display wait time if available
+                if "avg_wait_time" in results and results["avg_wait_time"] != "Not specified":
+                    st.metric("⏱️ Average Wait Time", results["avg_wait_time"])
+                
+                # Display overcrowded status as a boolean
+                if "overcrowded_counters" in results:
+                    if results["overcrowded_counters"] == True:
+                        st.warning("⚠️ Checkout counters are overcrowded!")
+                    elif results["customers_in_queue"] > 0:
+                        st.success("✅ Queue management is efficient")
                 
                 st.markdown("### AI Recommendations")
                 st.markdown(results["recommendations"])
@@ -125,9 +134,18 @@ def show():
                                 st.metric("🔢 Total Counters", results["total_counters"])
                                 st.metric("✅ Open Counters", results["open_counters"])
                                 st.metric("❌ Closed Counters", results["closed_counters"])
+                                st.metric("🧍 Customers in Queue", results["customers_in_queue"])
                                 
-                                if results["overcrowded_counters"]:
-                                    st.warning(f"⚠️ Overcrowded counters: {', '.join(map(str, results['overcrowded_counters']))}")
+                                # Display wait time if available
+                                if "avg_wait_time" in results and results["avg_wait_time"] != "Not specified":
+                                    st.metric("⏱️ Average Wait Time", results["avg_wait_time"])
+                                
+                                # Display overcrowded status as a boolean
+                                if "overcrowded_counters" in results:
+                                    if results["overcrowded_counters"] == True:
+                                        st.warning("⚠️ Checkout counters are overcrowded!")
+                                    elif results["customers_in_queue"] > 0:
+                                        st.success("✅ Queue management is efficient")
                                 
                                 st.markdown("### AI Recommendations")
                                 st.markdown(results["recommendations"])

@@ -157,6 +157,11 @@ class ModelInference:
             # Generate response
             response = self._generate_response(processed_image, prompt)
             
+            # Log the full raw response from the model
+            logger.info("===== RAW MODEL RESPONSE FOR GENDER DEMOGRAPHICS =====")
+            logger.info(response)
+            logger.info("========== END OF RAW MODEL RESPONSE ==========")
+            
             # Extract gender demographics from the response
             gender_data = self._extract_gender_counts(response)
             products = self._extract_products(response)
@@ -168,6 +173,7 @@ class ModelInference:
                 'women_count': gender_data.get('women_count', 0),
                 'products': products,
                 'insights': insights,
+                'raw_response': response,
                 'is_mock': False
             }
             
@@ -186,6 +192,7 @@ class ModelInference:
             'women_count': 3,
             'products': 'Fresh produce, Grocery items, Shopping carts',
             'insights': 'Customers are actively shopping and browsing products, Some customers are using shopping carts, indicating larger purchases, The store layout appears to encourage browsing through multiple aisles',
+            'raw_response': 'This is mock data. No actual model response available.',
             'is_mock': True
         }
 
@@ -219,6 +226,11 @@ class ModelInference:
             # Generate response
             response = self._generate_response(processed_image, prompt)
             
+            # Log the full raw response from the model
+            logger.info("===== RAW MODEL RESPONSE FOR QUEUE MANAGEMENT =====")
+            logger.info(response)
+            logger.info("========== END OF RAW MODEL RESPONSE ==========")
+            
             # Extract queue management information
             result = self._extract_queue_info(response)
             
@@ -226,6 +238,8 @@ class ModelInference:
                 logger.warning("Failed to extract queue management data from model response")
                 return self._get_fallback_queue_management()
             
+            # Add raw response to the results
+            result['raw_response'] = response
             result['is_mock'] = False
             return result
             
@@ -245,6 +259,7 @@ class ModelInference:
             'avg_wait_time': '3-5 minutes',
             'queue_efficiency': 'Moderate',
             'overcrowded_counters': False,
+            'raw_response': 'This is mock data. No actual model response available.',
             'recommendations': 'Consider opening additional checkout lanes during peak hours, Implement express lanes for customers with fewer items',
             'is_mock': True
         }

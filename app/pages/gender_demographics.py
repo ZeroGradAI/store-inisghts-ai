@@ -67,16 +67,27 @@ def show():
             
             with col2:
                 st.subheader("Analysis Results")
-                st.metric("👨 Men", results["men_count"])
-                st.metric("👩 Women", results["women_count"])
+                st.metric("👨 Men Count", results["men_count"])
+                st.metric("👩 Women Count", results["women_count"])
                 
-                # Display products if available
-                if "products" in results:
-                    st.markdown("### Products")
-                    st.markdown(results["products"])
+                st.markdown("### Products of Interest")
+                st.write(results["products"])
                 
-                st.markdown("### AI Insights")
-                st.markdown(results["insights"])
+                st.markdown("### Insights")
+                st.write(results["insights"])
+                
+                # Add debug information expander
+                with st.expander("Debug Information"):
+                    st.write("Raw response data:")
+                    st.json(results)
+                    
+                    # Add section to display raw model response if available
+                    if "raw_response" in results:
+                        st.markdown("### Raw Model Response")
+                        st.text(results["raw_response"])
+                    else:
+                        st.info("Raw model response not available. Check logs for more details.")
+                        st.markdown("To see raw responses, check the logs or add 'raw_response' to the result dictionary.")
     else:
         # Display sample images
         st.markdown("### Sample Images")
@@ -120,16 +131,27 @@ def show():
                             
                             with col2:
                                 st.subheader("Analysis Results")
-                                st.metric("👨 Men", results["men_count"])
-                                st.metric("👩 Women", results["women_count"])
+                                st.metric("👨 Men Count", results["men_count"])
+                                st.metric("👩 Women Count", results["women_count"])
                                 
-                                # Display products if available
-                                if "products" in results:
-                                    st.markdown("### Products")
-                                    st.markdown(results["products"])
+                                st.markdown("### Products of Interest")
+                                st.write(results["products"])
                                 
-                                st.markdown("### AI Insights")
-                                st.markdown(results["insights"])
+                                st.markdown("### Insights")
+                                st.write(results["insights"])
+                                
+                                # Add debug information expander
+                                with st.expander("Debug Information"):
+                                    st.write("Raw response data:")
+                                    st.json(results)
+                                    
+                                    # Add section to display raw model response if available
+                                    if "raw_response" in results:
+                                        st.markdown("### Raw Model Response")
+                                        st.text(results["raw_response"])
+                                    else:
+                                        st.info("Raw model response not available. Check logs for more details.")
+                                        st.markdown("To see raw responses, check the logs or add 'raw_response' to the result dictionary.")
         else:
             st.info("Sample images not found. Please upload your own image.")
 

@@ -11,14 +11,16 @@ import signal
 import traceback
 import tempfile
 import io
-import importlib.util
 
-# Add the LLaVA directory to the path but we'll import modules directly
-root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-llava_dir = os.path.join(root_dir, "LLaVA")
-if llava_dir not in sys.path:
-    sys.path.append(llava_dir)
-    print(f"Added LLaVA directory to path: {llava_dir}")
+# Import our self-contained LLaVA implementation
+from model.llava_minimal import (
+    eval_model,
+    get_model_name_from_path,
+    IMAGE_TOKEN_INDEX,
+    DEFAULT_IMAGE_TOKEN,
+    DEFAULT_IM_START_TOKEN,
+    DEFAULT_IM_END_TOKEN
+)
 
 # Configure logging
 logging.basicConfig(
@@ -32,14 +34,17 @@ class ModelInference:
     
     def __init__(self, use_small_model=False):
         """Initialize the model inference class."""
-        self.model = None
-        self.tokenizer = None
-        self.image_processor = None
         self.is_mock = not torch.cuda.is_available()  # Set based on CUDA availability initially
         
         # Set the model name
         self.model_name = "liuhaotian/llava-v1.5-7b"
         logger.info(f"Using model: {self.model_name}")
+        
+        # Store constants
+        self.IMAGE_TOKEN_INDEX = IMAGE_TOKEN_INDEX
+        self.DEFAULT_IMAGE_TOKEN = DEFAULT_IMAGE_TOKEN
+        self.DEFAULT_IM_START_TOKEN = DEFAULT_IM_START_TOKEN
+        self.DEFAULT_IM_END_TOKEN = DEFAULT_IM_END_TOKEN
         
         # Check if CUDA is available
         if torch.cuda.is_available():
@@ -66,98 +71,11 @@ class ModelInference:
         logger.info("Loading model...")
 
         try:
-            # Load modules directly from their file paths, bypassing __init__.py
+            # Store the functions we need
+            self.eval_model = eval_model
+            self.get_model_name_from_path = get_model_name_from_path
             
-            # 1. First, let's manually import the necessary modules
-            # Define paths to the modules
-            constants_path = os.path.join(llava_dir, "llava", "constants.py")
-            utils_path = os.path.join(llava_dir, "llava", "utils.py")
-            mm_utils_path = os.path.join(llava_dir, "llava", "mm_utils.py")
-            run_llava_path = os.path.join(llava_dir, "llava", "eval", "run_llava.py")
-            conversation_path = os.path.join(llava_dir, "llava", "conversation.py")
-            model_builder_path = os.path.join(llava_dir, "llava", "model", "builder.py")
-            
-            # Load constants.py
-            logger.info(f"Loading constants module from {constants_path}")
-            spec_constants = importlib.util.spec_from_file_location("constants", constants_path)
-            constants = importlib.util.module_from_spec(spec_constants)
-            spec_constants.loader.exec_module(constants)
-            
-            # Load utils.py
-            logger.info(f"Loading utils module from {utils_path}")
-            spec_utils = importlib.util.spec_from_file_location("utils", utils_path)
-            utils = importlib.util.module_from_spec(spec_utils)
-            spec_utils.loader.exec_module(utils)
-            
-            # Load mm_utils.py
-            logger.info(f"Loading mm_utils module from {mm_utils_path}")
-            spec_mm_utils = importlib.util.spec_from_file_location("mm_utils", mm_utils_path)
-            mm_utils = importlib.util.module_from_spec(spec_mm_utils)
-            spec_mm_utils.loader.exec_module(mm_utils)
-            
-            # Load conversation.py
-            logger.info(f"Loading conversation module from {conversation_path}")
-            spec_conversation = importlib.util.spec_from_file_location("conversation", conversation_path)
-            conversation = importlib.util.module_from_spec(spec_conversation)
-            spec_conversation.loader.exec_module(conversation)
-            
-            # Load model/builder.py
-            logger.info(f"Loading model builder module from {model_builder_path}")
-            spec_model_builder = importlib.util.spec_from_file_location("builder", model_builder_path)
-            model_builder = importlib.util.module_from_spec(spec_model_builder)
-            # Add dependencies for builder module
-            model_builder.utils = utils
-            # Execute the module
-            spec_model_builder.loader.exec_module(model_builder)
-            
-            # Load run_llava.py
-            logger.info(f"Loading run_llava module from {run_llava_path}")
-            spec_run_llava = importlib.util.spec_from_file_location("run_llava", run_llava_path)
-            run_llava = importlib.util.module_from_spec(spec_run_llava)
-            
-            # Import PIL directly for run_llava
-            from PIL import Image as PILImage
-            
-            # Handle dependencies for run_llava
-            run_llava.constants = constants
-            run_llava.utils = utils
-            run_llava.mm_utils = mm_utils
-            run_llava.disable_torch_init = utils.disable_torch_init
-            run_llava.conversation = conversation
-            run_llava.conv_templates = conversation.conv_templates
-            run_llava.SeparatorStyle = conversation.SeparatorStyle
-            run_llava.IMAGE_TOKEN_INDEX = constants.IMAGE_TOKEN_INDEX
-            run_llava.DEFAULT_IMAGE_TOKEN = constants.DEFAULT_IMAGE_TOKEN
-            run_llava.DEFAULT_IM_START_TOKEN = constants.DEFAULT_IM_START_TOKEN
-            run_llava.DEFAULT_IM_END_TOKEN = constants.DEFAULT_IM_END_TOKEN
-            run_llava.IMAGE_PLACEHOLDER = constants.IMAGE_PLACEHOLDER
-            run_llava.process_images = mm_utils.process_images
-            run_llava.tokenizer_image_token = mm_utils.tokenizer_image_token
-            run_llava.get_model_name_from_path = mm_utils.get_model_name_from_path
-            run_llava.load_pretrained_model = model_builder.load_pretrained_model
-            run_llava.Image = PILImage  # Add PIL Image module to run_llava
-            
-            # Add requests and io dependencies
-            import requests
-            from io import BytesIO
-            import re as re_module
-            run_llava.requests = requests
-            run_llava.BytesIO = BytesIO
-            run_llava.re = re_module
-            
-            # Execute the module
-            spec_run_llava.loader.exec_module(run_llava)
-            
-            # Store what we need
-            self.eval_model = run_llava.eval_model
-            self.load_image = run_llava.load_image
-            self.get_model_name_from_path = mm_utils.get_model_name_from_path
-            self.IMAGE_TOKEN_INDEX = constants.IMAGE_TOKEN_INDEX
-            self.DEFAULT_IMAGE_TOKEN = constants.DEFAULT_IMAGE_TOKEN
-            self.DEFAULT_IM_START_TOKEN = constants.DEFAULT_IM_START_TOKEN
-            self.DEFAULT_IM_END_TOKEN = constants.DEFAULT_IM_END_TOKEN
-            
-            logger.info("Successfully loaded all required modules directly")
+            logger.info("Successfully initialized LLaVA functionality")
                 
         except Exception as e:
             logger.error(f"Error loading model: {str(e)}")

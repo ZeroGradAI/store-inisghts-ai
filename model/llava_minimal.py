@@ -239,18 +239,30 @@ def load_pretrained_model(model_path, model_base=None, model_name=None, load_8bi
         image_processor = CLIPImageProcessor.from_pretrained(vision_tower)
     
     # Load the main model
-    if load_8bit:
-        model = AutoModelForCausalLM.from_pretrained(
-            model_path, torch_dtype=torch.float16, device_map="auto", load_in_8bit=True
-        )
-    elif load_4bit:
-        model = AutoModelForCausalLM.from_pretrained(
-            model_path, torch_dtype=torch.float16, device_map="auto", load_in_4bit=True
-        )
-    else:
-        model = AutoModelForCausalLM.from_pretrained(
-            model_path, torch_dtype=torch.float16, device_map="auto"
-        )
+    try:
+        if load_8bit:
+            model = AutoModelForCausalLM.from_pretrained(
+                model_path, torch_dtype=torch.float16, device_map="auto", load_in_8bit=True, trust_remote_code=True
+            )
+        elif load_4bit:
+            model = AutoModelForCausalLM.from_pretrained(
+                model_path, torch_dtype=torch.float16, device_map="auto", load_in_4bit=True, trust_remote_code=True
+            )
+        else:
+            model = AutoModelForCausalLM.from_pretrained(
+                model_path, torch_dtype=torch.float16, device_map="auto", trust_remote_code=True
+            )
+    except Exception as e:
+        print(f"Error loading model: {e}")
+        # Try with a different approach
+        try:
+            from transformers import LlavaForConditionalGeneration
+            model = LlavaForConditionalGeneration.from_pretrained(
+                model_path, torch_dtype=torch.float16, device_map="auto"
+            )
+        except Exception as e2:
+            print(f"Second attempt failed: {e2}")
+            raise ValueError(f"Could not load model {model_path}")
     
     # Set the vision tower for the model
     if hasattr(model, "vision_tower") and not model.vision_tower:

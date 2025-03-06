@@ -70,36 +70,39 @@ def show():
             # Store results in session state
             st.session_state.queue_management_results = results
             
-            # Display results
-            col1, col2 = st.columns(2)
+            # Organize layout with clear divisions
+            # Section 1: Counter Information (chart side by side with metrics)
+            st.subheader("Counter Status")
+            counter_col1, counter_col2 = st.columns([3, 2])
             
-            with col1:
-                st.subheader("Counter Status")
+            with counter_col1:
+                # Counter status chart
                 fig = go.Figure()
                 fig.add_trace(go.Bar(
                     x=["Open", "Closed"],
                     y=[results["open_counters"], results["closed_counters"]],
                     marker_color=["#4CAF50", "#F44336"]
                 ))
-                fig.update_layout(title_text="Counter Status")
-                st.plotly_chart(fig)
+                fig.update_layout(
+                    title_text="Open vs. Closed Counters",
+                    height=350  # Control the chart height
+                )
+                st.plotly_chart(fig, use_container_width=True)
             
-            with col2:
-                st.subheader("Analysis Results")
-                
-                # Counter information
-                counter_col1, counter_col2 = st.columns(2)
-                with counter_col1:
-                    st.metric("🔢 Total Counters", results["total_counters"])
-                    st.metric("✅ Open Counters", results["open_counters"])
-                with counter_col2:
-                    st.metric("❌ Closed Counters", results["closed_counters"])
-                    st.metric("🧍 Customers in Queue", results["customers_in_queue"])
-                
-                # Create separate space for wait time and status
-                st.markdown("---")
-                st.subheader("Wait Time & Status")
-                
+            with counter_col2:
+                # Counter metrics
+                st.metric("🔢 Total Counters", results["total_counters"])
+                st.metric("✅ Open Counters", results["open_counters"])
+                st.metric("❌ Closed Counters", results["closed_counters"])
+                st.metric("🧍 Customers in Queue", results["customers_in_queue"])
+            
+            # Section 2: Wait Time & Status in its own section with clear separation
+            st.markdown("---")
+            st.subheader("Wait Time & Status")
+            
+            # Put status info in a container with custom styling
+            status_container = st.container()
+            with status_container:
                 # Only show wait time if there are customers in queue
                 if results["customers_in_queue"] > 0:
                     if "avg_wait_time" in results and results["avg_wait_time"] not in ["Not specified", "Not enough data"]:
@@ -117,16 +120,16 @@ def show():
                         st.success("✅ **Queue management is efficient**")
                     else:
                         st.success("✅ **No waiting customers**")
-                
-                # Recommendations in separate section
-                st.markdown("---")
-                st.subheader("AI Recommendations")
-                st.markdown(results["recommendations"])
-                
-                # Debug information (in collapsed section for developers)
-                with st.expander("Debug Information"):
-                    st.write("Raw response data:")
-                    st.json(results)
+            
+            # Section 3: Recommendations
+            st.markdown("---")
+            st.subheader("AI Recommendations")
+            st.markdown(results["recommendations"])
+            
+            # Debug information (in collapsed section for developers)
+            with st.expander("Debug Information"):
+                st.write("Raw response data:")
+                st.json(results)
     else:
         # Display sample images
         st.markdown("### Sample Images")
@@ -155,36 +158,39 @@ def show():
                             # Store results in session state
                             st.session_state.queue_management_results = results
                             
-                            # Display results
-                            col1, col2 = st.columns(2)
+                            # Organize layout with clear divisions
+                            # Section 1: Counter Information (chart side by side with metrics)
+                            st.subheader("Counter Status")
+                            counter_col1, counter_col2 = st.columns([3, 2])
                             
-                            with col1:
-                                st.subheader("Counter Status")
+                            with counter_col1:
+                                # Counter status chart
                                 fig = go.Figure()
                                 fig.add_trace(go.Bar(
                                     x=["Open", "Closed"],
                                     y=[results["open_counters"], results["closed_counters"]],
                                     marker_color=["#4CAF50", "#F44336"]
                                 ))
-                                fig.update_layout(title_text="Counter Status")
-                                st.plotly_chart(fig)
+                                fig.update_layout(
+                                    title_text="Open vs. Closed Counters",
+                                    height=350  # Control the chart height
+                                )
+                                st.plotly_chart(fig, use_container_width=True)
                             
-                            with col2:
-                                st.subheader("Analysis Results")
-                                
-                                # Counter information
-                                counter_col1, counter_col2 = st.columns(2)
-                                with counter_col1:
-                                    st.metric("🔢 Total Counters", results["total_counters"])
-                                    st.metric("✅ Open Counters", results["open_counters"])
-                                with counter_col2:
-                                    st.metric("❌ Closed Counters", results["closed_counters"])
-                                    st.metric("🧍 Customers in Queue", results["customers_in_queue"])
-                                
-                                # Create separate space for wait time and status
-                                st.markdown("---")
-                                st.subheader("Wait Time & Status")
-                                
+                            with counter_col2:
+                                # Counter metrics
+                                st.metric("🔢 Total Counters", results["total_counters"])
+                                st.metric("✅ Open Counters", results["open_counters"])
+                                st.metric("❌ Closed Counters", results["closed_counters"])
+                                st.metric("🧍 Customers in Queue", results["customers_in_queue"])
+                            
+                            # Section 2: Wait Time & Status in its own section with clear separation
+                            st.markdown("---")
+                            st.subheader("Wait Time & Status")
+                            
+                            # Put status info in a container with custom styling
+                            status_container = st.container()
+                            with status_container:
                                 # Only show wait time if there are customers in queue
                                 if results["customers_in_queue"] > 0:
                                     if "avg_wait_time" in results and results["avg_wait_time"] not in ["Not specified", "Not enough data"]:
@@ -202,16 +208,16 @@ def show():
                                         st.success("✅ **Queue management is efficient**")
                                     else:
                                         st.success("✅ **No waiting customers**")
-                                
-                                # Recommendations in separate section
-                                st.markdown("---")
-                                st.subheader("AI Recommendations")
-                                st.markdown(results["recommendations"])
-                                
-                                # Debug information (in collapsed section for developers)
-                                with st.expander("Debug Information"):
-                                    st.write("Raw response data:")
-                                    st.json(results)
+                            
+                            # Section 3: Recommendations
+                            st.markdown("---")
+                            st.subheader("AI Recommendations")
+                            st.markdown(results["recommendations"])
+                            
+                            # Debug information (in collapsed section for developers)
+                            with st.expander("Debug Information"):
+                                st.write("Raw response data:")
+                                st.json(results)
         else:
             st.info("Sample images not found. Please upload your own image.")
 

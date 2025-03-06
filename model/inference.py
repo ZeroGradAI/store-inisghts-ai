@@ -1,128 +1,86 @@
 import os
-import sys
-import io
-import time
-import random
 import logging
-import tempfile
-import numpy as np
-from typing import Optional, Union, List, Dict, Any
+import torch
 from PIL import Image
+from transformers import BitsAndBytesConfig, pipeline
+import json
+import re
 
-# Configure logging
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
-logger = logging.getLogger("ModelInference")
-
-# Import from llava_minimal
-from model.llava_minimal import (
-    eval_model,
-    get_model_name_from_path,
-    DEFAULT_IMAGE_TOKEN,
-    DEFAULT_IM_START_TOKEN,
-    DEFAULT_IM_END_TOKEN,
-    IMAGE_TOKEN_INDEX
-)
+# Setup logging
+logging.basicConfig(level=logging.INFO, 
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 class ModelInference:
-    """Class for model inference operations."""
+    """Class for model inference operations using the LLaVA model."""
     
     def __init__(self, use_small_model=False):
         """Initialize the model inference class."""
-        self.is_mock = not torch.cuda.is_available()  # Set based on CUDA availability initially
+        self.is_mock = False
+        self.model_id = "llava-hf/llava-1.5-7b-hf"
+        self.max_new_tokens = 1000
         
-        # Set the model name
-        self.model_name = "liuhaotian/llava-v1.5-7b"
-        logger.info(f"Using model: {self.model_name}")
-        
-        # Store constants
-        self.IMAGE_TOKEN_INDEX = IMAGE_TOKEN_INDEX
-        self.DEFAULT_IMAGE_TOKEN = DEFAULT_IMAGE_TOKEN
-        self.DEFAULT_IM_START_TOKEN = DEFAULT_IM_START_TOKEN
-        self.DEFAULT_IM_END_TOKEN = DEFAULT_IM_END_TOKEN
-        
-        # Check if CUDA is available
-        if torch.cuda.is_available():
-            logger.info(f"CUDA is available. Detected {torch.cuda.device_count()} GPU(s).")
-            logger.info(f"Current CUDA device: {torch.cuda.current_device()}")
-            logger.info(f"CUDA device name: {torch.cuda.get_device_name(0)}")
-            
-            try:
-                logger.info(f"Loading model...")
-                self._load_model()
-                self.is_mock = False  # Only set to False after successful model loading
-                logger.info(f"Model loaded successfully!")
-            except Exception as e:
-                logger.error(f"Error loading model: {str(e)}")
-                logger.error("Stack trace:", exc_info=True)
-                logger.warning(f"Falling back to mock data.")
-                self.is_mock = True  # Ensure is_mock is True if model loading fails
-        else:
-            logger.warning(f"CUDA not available. Using mock data.")
-            self.is_mock = True  # Redundant but explicit
-    
-    def _load_model(self):
-        """Load the LLaVA model."""
-        logger.info("Loading model...")
-
         try:
-            # Store the functions we need
-            self.eval_model = eval_model
-            self.get_model_name_from_path = get_model_name_from_path
-            
-            logger.info("Successfully initialized LLaVA functionality")
+            if torch.cuda.is_available():
+                logger.info(f"CUDA is available. Detected {torch.cuda.device_count()} GPU(s).")
+                logger.info(f"Current CUDA device: {torch.cuda.current_device()}")
+                logger.info(f"CUDA device name: {torch.cuda.get_device_name(0)}")
                 
+                logger.info(f"Loading model {self.model_id}...")
+                self._load_model()
+                logger.info(f"Model loaded successfully!")
+            else:
+                logger.warning("CUDA not available. Using fallback data.")
+                self.is_mock = True
         except Exception as e:
             logger.error(f"Error loading model: {str(e)}")
+            logger.error("Stack trace:", exc_info=True)
+            logger.warning("Falling back to mock data.")
+            self.is_mock = True
+    
+    def _load_model(self):
+        """Load the LLaVA model using HuggingFace pipeline."""
+        try:
+            # Configure quantization for better memory performance
+            quantization_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_compute_dtype=torch.float16
+            )
+            
+            # Create the pipeline
+            self.pipe = pipeline(
+                "image-to-text", 
+                model=self.model_id, 
+                model_kwargs={"quantization_config": quantization_config}
+            )
+        except Exception as e:
+            logger.error(f"Failed to load model: {str(e)}")
             logger.error("Stack trace:", exc_info=True)
             self.is_mock = True
             raise
     
-    def _save_processed_image(self, img):
-        """Save a processed image to a temporary file."""
-        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as temp_file:
-            temp_image_path = temp_file.name
-            img.save(temp_image_path)
-            return temp_image_path
-    
-    def _create_args_for_eval(self, image_path, prompt):
-        """Create an args object for model evaluation."""
-        return type('Args', (), {
-            "model_path": self.model_name,
-            "model_base": None,
-            "model_name": self.get_model_name_from_path(self.model_name),
-            "query": prompt,
-            "conv_mode": None,
-            "image_file": image_path,
-            "sep": ",",
-            "temperature": 0.2,
-            "top_p": 0.7,
-            "num_beams": 1,
-            "max_new_tokens": 512
-        })()
-    
     def _process_image(self, image_path=None, image=None):
-        """
-        Process an image for the model.
-        Either image_path or image must be provided.
+        """Process an image for model consumption.
+        
+        Args:
+            image_path: Path to the image file
+            image: PIL Image object
+            
         Returns a PIL Image ready for model consumption.
         """
         if self.is_mock:
-            # Return a simple placeholder if in mock mode
             return "mock_image_processed"
         
         try:
             if image is not None:
-                # If an image object was provided, just return it
                 if isinstance(image, Image.Image):
                     return image
                 elif isinstance(image, str) and os.path.isfile(image):
-                    # If image is a string and exists as a file, treat it as a path
                     return Image.open(image).convert('RGB')
                 else:
                     logger.error(f"Invalid image format: {type(image)}")
                     return None
             elif image_path is not None:
-                # If only a path was provided, load the image
                 if os.path.isfile(image_path):
                     return Image.open(image_path).convert('RGB')
                 else:
@@ -137,68 +95,38 @@ class ModelInference:
             logger.error("Stack trace:", exc_info=True)
             return None
     
-    def _generate_response(self, image_path, prompt):
-        """Generate a response based on the image and prompt using the LLaVA model."""
+    def _generate_response(self, image, prompt):
+        """Generate a response based on the image and prompt using the LLaVA model.
+        
+        Args:
+            image: PIL Image object
+            prompt: Text prompt for the model
+            
+        Returns:
+            Model response as a string
+        """
+        if self.is_mock:
+            return "This is a mock response for testing purposes."
+        
         try:
-            # Process the image
-            logger.info("Processing image for model inference")
-            img = Image.open(image_path)
-            logger.info(f"Original image size: {img.size}")
+            # Ensure the prompt follows the correct format
+            if not prompt.startswith("USER:"):
+                prompt = f"USER: <image>\n{prompt}\nASSISTANT:"
             
-            # Save processed image to a temporary file
-            temp_image_path = self._save_processed_image(img)
-            logger.info(f"Saved processed image to temporary file: {temp_image_path}")
+            # Run inference
+            outputs = self.pipe(image, prompt=prompt, generate_kwargs={"max_new_tokens": self.max_new_tokens})
+            response = outputs[0]["generated_text"]
             
-            # Run the LLaVA model evaluation
-            logger.info("Running LLaVA model evaluation")
-            args = self._create_args_for_eval(temp_image_path, prompt)
-            result = self.eval_model(args)
+            # Extract just the assistant's response if needed
+            if "ASSISTANT:" in response:
+                response = response.split("ASSISTANT:")[1].strip()
             
-            # Clean up the temporary file
-            os.remove(temp_image_path)
-            logger.info("Removed temporary image file")
-            
-            return result
+            return response
         except Exception as e:
-            logger.error(f"Error in _generate_response: {str(e)}")
+            logger.error(f"Error in generate_response: {str(e)}")
             logger.error("Stack trace:", exc_info=True)
-            
-            # If local model fails, try using a fallback approach
-            try:
-                return self._fallback_generate_response(image_path, prompt)
-            except Exception as fallback_e:
-                logger.error(f"Fallback also failed: {str(fallback_e)}")
-                return f"Error: {str(e)}"
+            return f"Error generating response: {str(e)}"
     
-    def _fallback_generate_response(self, image_path, prompt):
-        """A simple fallback that handles basic retail analysis without LLaVA."""
-        logger.info("Using reliable fallback for response generation")
-        
-        # For demonstration - in a real implementation, this could use:
-        # 1. A simpler pretrained model
-        # 2. An API call to an external service
-        # 3. Rule-based analysis for known question types
-        
-        if "gender" in prompt.lower():
-            logger.info("Using reliable fallback for gender demographics")
-            return "Based on the image, I estimate approximately 60% female and 40% male customers in the store."
-        
-        elif "age" in prompt.lower():
-            logger.info("Using fallback age demographics data")
-            return "Based on the image, the customer age distribution appears to be: 20-30 years: 35%, 30-40 years: 40%, 40-50 years: 15%, 50+ years: 10%."
-        
-        elif "busy" in prompt.lower() or "crowd" in prompt.lower():
-            logger.info("Using fallback store traffic analysis")
-            return "The store appears to have moderate traffic, with several customers visible but not overcrowded."
-        
-        elif "product" in prompt.lower() or "item" in prompt.lower():
-            logger.info("Using fallback product analysis")
-            return "The store displays a variety of products, with clothing items appearing to be the most prominent category visible in the image."
-        
-        else:
-            logger.info("Using generic fallback response")
-            return "I'm unable to analyze this specific aspect of the retail environment from the image. Please try a different question or check if the image is clear enough."
-
     def analyze_gender_demographics(self, image):
         """
         Analyze the gender demographics in a retail store image.
@@ -216,45 +144,38 @@ class ModelInference:
             return self._get_fallback_gender_demographics()
         
         try:
-            # Process the image to get a PIL Image
-            logger.info("Using real model for gender demographics analysis")
+            # Process the image
             processed_image = self._process_image(image_path=None, image=image)
             
             if processed_image is None:
                 logger.error("Failed to process image")
-                logger.info("Using fallback gender demographics data")
                 return self._get_fallback_gender_demographics()
             
-            # Save the processed image to a temporary file if needed
-            temp_image_path = self._save_processed_image(processed_image)
-            
             # Craft prompt for gender demographics analysis
-            prompt = "Analyze this retail store image and estimate the gender distribution of customers. Please provide the percentage of male and female customers visible in the image."
+            prompt = "USER: <image>\nHow many men and women do you see in the image and what products are they looking at?\nASSISTANT:"
             
             # Generate response
-            response = self._generate_response(temp_image_path, prompt)
-            
-            # Clean up the temporary file
-            try:
-                os.remove(temp_image_path)
-                logger.info("Removed temporary image file")
-            except Exception as e:
-                logger.warning(f"Failed to remove temporary image file: {str(e)}")
+            response = self._generate_response(processed_image, prompt)
             
             # Extract gender demographics from the response
             gender_data = self._extract_gender_counts(response)
+            products = self._extract_products(response)
+            insights = self._extract_insights(response)
             
-            if gender_data is None:
-                logger.warning("Failed to extract gender demographics from model response")
-                logger.info("Using fallback gender demographics data")
-                return self._get_fallback_gender_demographics()
+            # Combine all data
+            result = {
+                'men_count': gender_data.get('men_count', 0),
+                'women_count': gender_data.get('women_count', 0),
+                'products': products,
+                'insights': insights,
+                'is_mock': False
+            }
             
-            return gender_data
+            return result
             
         except Exception as e:
             logger.error(f"Error analyzing gender demographics: {str(e)}")
             logger.error("Stack trace:", exc_info=True)
-            logger.info("Using fallback gender demographics data")
             return self._get_fallback_gender_demographics()
     
     def _get_fallback_gender_demographics(self):
@@ -269,204 +190,175 @@ class ModelInference:
         }
 
     def analyze_queue_management(self, image):
-        """Analyze queue management in the image."""
+        """
+        Analyze the queue management in a retail store image.
+        
+        Args:
+            image: The image to analyze (file path or PIL Image)
+            
+        Returns:
+            A dictionary with queue management information.
+        """
         logger.info("Starting queue management analysis")
         
         if self.is_mock:
-            # Return mock data
             logger.info("Using mock data for queue management analysis")
-            total_counters = random.randint(4, 8)
-            open_counters = random.randint(2, total_counters)
-            closed_counters = total_counters - open_counters
+            return self._get_fallback_queue_management()
+        
+        try:
+            # Process the image
+            processed_image = self._process_image(image_path=None, image=image)
             
-            recommendations = [
-                "Open more counters during peak hours to reduce wait times.",
-                "Consider implementing an express lane for customers with few items.",
-                "Train staff to handle transactions more efficiently.",
-                "Use digital signage to direct customers to available counters.",
-                "Implement a queue management system to balance customer flow."
-            ]
+            if processed_image is None:
+                logger.error("Failed to process image")
+                return self._get_fallback_queue_management()
             
-            logger.info(f"Mock analysis complete: Total={total_counters}, Open={open_counters}, Closed={closed_counters}")
+            # Craft prompt for queue analysis
+            prompt = "USER: <image>\nAnalyze this retail store image for queue management. How many checkout counters are open? Are there any customers waiting in line? If so, how many and is the queue management efficient?\nASSISTANT:"
+            
+            # Generate response
+            response = self._generate_response(processed_image, prompt)
+            
+            # Extract queue management information
+            result = self._extract_queue_info(response)
+            
+            if not result:
+                logger.warning("Failed to extract queue management data from model response")
+                return self._get_fallback_queue_management()
+            
+            result['is_mock'] = False
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error analyzing queue management: {str(e)}")
+            logger.error("Stack trace:", exc_info=True)
+            return self._get_fallback_queue_management()
+    
+    def _get_fallback_queue_management(self):
+        """Provide a reliable fallback for queue management analysis."""
+        logger.info("Using fallback queue management data")
+        return {
+            'open_counters': 2,
+            'customers_in_queue': 4,
+            'avg_wait_time': '3-5 minutes',
+            'queue_efficiency': 'Moderate',
+            'recommendations': 'Consider opening additional checkout lanes during peak hours, Implement express lanes for customers with fewer items',
+            'is_mock': True
+        }
+    
+    def _extract_gender_counts(self, response):
+        """Extract gender counts from model response."""
+        try:
+            # Default values
+            men_count = 0
+            women_count = 0
+            
+            # Look for numbers of men and women in the response
+            men_pattern = r'(\d+)\s*men'
+            women_pattern = r'(\d+)\s*women'
+            
+            men_match = re.search(men_pattern, response, re.IGNORECASE)
+            women_match = re.search(women_pattern, response, re.IGNORECASE)
+            
+            if men_match:
+                men_count = int(men_match.group(1))
+            
+            if women_match:
+                women_count = int(women_match.group(1))
             
             return {
-                "total_counters": total_counters,
-                "open_counters": open_counters,
-                "closed_counters": closed_counters,
-                "recommendations": random.choice(recommendations)
+                'men_count': men_count,
+                'women_count': women_count
             }
-        
-        # Real model analysis
-        logger.info("Using real model for queue management analysis")
-        prompt = """
-        Analyze this store image and provide the following information about checkout counters and queue management:
-        1. Total number of checkout counters visible:
-        2. Number of open/active counters:
-        3. Number of closed/inactive counters:
-        4. Recommendations for improving queue management:
-        
-        Format your response as:
-        Total counters: [count]
-        Open counters: [count]
-        Closed counters: [count]
-        Recommendations: [your recommendations]
-        """
-        
-        response = self._generate_response(image, prompt)
-        logger.info(f"Model response: {response}")
-        
-        # Check if the response contains Python code or just repeats the prompt
-        contains_code = "class" in response or "def " in response or "import " in response
-        contains_proper_format = "Total counters:" in response and "Open counters:" in response
-        
-        if contains_code or not contains_proper_format:
-            logger.warning("Model response appears to be code or doesn't match expected format. Using manual analysis.")
-            
-            # Default values for the fallback
-            total_counters = 6
-            open_counters = 3
-            closed_counters = 3
-            recommendations = "Consider opening more counters during peak hours to reduce customer wait times. Implement a queue management system to better distribute customers across available counters."
-            
-            logger.info(f"Manual analysis results: Total={total_counters}, Open={open_counters}, Closed={closed_counters}")
-        else:
-            # Parse the response using regex
-            total_match = re.search(r"Total counters:\s*(\d+)", response)
-            open_match = re.search(r"Open counters:\s*(\d+)", response)
-            closed_match = re.search(r"Closed counters:\s*(\d+)", response)
-            recommendations_match = re.search(r"Recommendations:\s*(.*?)(?:\n|$)", response, re.DOTALL)
-            
-            total_counters = int(total_match.group(1)) if total_match else 6
-            open_counters = int(open_match.group(1)) if open_match else 3
-            closed_counters = int(closed_match.group(1)) if closed_match else 3
-            recommendations = recommendations_match.group(1) if recommendations_match else "Monitor customer flow and adjust counter staffing as needed."
-        
-        logger.info(f"Parsed results: Total={total_counters}, Open={open_counters}, Closed={closed_counters}")
-        logger.info(f"Recommendations: {recommendations}")
-        
-        return {
-            "total_counters": total_counters,
-            "open_counters": open_counters,
-            "closed_counters": closed_counters,
-            "recommendations": recommendations
-        }
-
-    def _extract_gender_counts(self, response):
-        """Extract counts of men and women from the model response."""
-        # Default values
-        men_count = 0
-        women_count = 0
-        
-        try:
-            # Try to extract the number of men and women from the response
-            men_patterns = [
-                r"(\d+)\s+men", r"(\d+)\s+male", r"(\d+)\s+man",
-                r"one man", r"two men", r"three men", r"four men", r"five men",
-                r"1 man", r"2 men", r"3 men", r"4 men", r"5 men"
-            ]
-            
-            women_patterns = [
-                r"(\d+)\s+women", r"(\d+)\s+female", r"(\d+)\s+woman",
-                r"one woman", r"two women", r"three women", r"four women", r"five women",
-                r"1 woman", r"2 women", r"3 women", r"4 women", r"5 women"
-            ]
-            
-            # Try to find matches for men
-            for pattern in men_patterns:
-                match = re.search(pattern, response.lower())
-                if match:
-                    if match.group(0).startswith(("one", "1")):
-                        men_count = 1
-                    elif match.group(0).startswith(("two", "2")):
-                        men_count = 2
-                    elif match.group(0).startswith(("three", "3")):
-                        men_count = 3
-                    elif match.group(0).startswith(("four", "4")):
-                        men_count = 4
-                    elif match.group(0).startswith(("five", "5")):
-                        men_count = 5
-                    else:
-                        try:
-                            men_count = int(match.group(1))
-                        except (IndexError, ValueError):
-                            pass
-                    break
-            
-            # Try to find matches for women
-            for pattern in women_patterns:
-                match = re.search(pattern, response.lower())
-                if match:
-                    if match.group(0).startswith(("one", "1")):
-                        women_count = 1
-                    elif match.group(0).startswith(("two", "2")):
-                        women_count = 2
-                    elif match.group(0).startswith(("three", "3")):
-                        women_count = 3
-                    elif match.group(0).startswith(("four", "4")):
-                        women_count = 4
-                    elif match.group(0).startswith(("five", "5")):
-                        women_count = 5
-                    else:
-                        try:
-                            women_count = int(match.group(1))
-                        except (IndexError, ValueError):
-                            pass
-                    break
-        
         except Exception as e:
             logger.error(f"Error extracting gender counts: {str(e)}")
-        
-        return men_count, women_count
+            return None
     
     def _extract_products(self, response):
-        """Extract products from the model response."""
-        products = ""
-        
+        """Extract product information from model response."""
         try:
-            # Try to extract products information
-            products_match = re.search(r"2\.\s*(.*?)(?:\n|3\.)", response, re.DOTALL)
+            # Look for mentions of products
+            products_pattern = r'(looking at|browsing|viewing|shopping for|examining|checking|exploring)\s+(.*?)(?:\.|$)'
+            
+            products_match = re.search(products_pattern, response, re.IGNORECASE)
+            
             if products_match:
-                products_text = products_match.group(1).strip()
-                
-                # Clean up and format products text
-                products = products_text.replace('\n', ', ').replace(' - ', ', ').replace('-', ', ')
-                
-                # If empty, use default
-                if not products:
-                    products = 'Fresh produce, Grocery items'
-        
+                return products_match.group(2).strip()
+            else:
+                # If no specific pattern match, use a broader approach
+                words = response.split()
+                for i, word in enumerate(words):
+                    if word.lower() in ['products', 'product', 'items', 'item'] and i < len(words) - 1:
+                        # Return the rest of the sentence after "products"
+                        return ' '.join(words[i+1:]).split('.')[0]
+            
+            return "Not specified"
         except Exception as e:
             logger.error(f"Error extracting products: {str(e)}")
-            products = 'Fresh produce, Grocery items'
-        
-        return products
+            return "Not specified"
     
     def _extract_insights(self, response):
-        """Extract insights from the model response."""
-        insights = ""
-        
+        """Extract additional insights from model response."""
+        # For now, return a basic insight based on the demographic split
         try:
-            # Try to extract insights
-            insights_match = re.search(r"3\.\s*(.*?)(?:\n|$)", response, re.DOTALL)
-            if insights_match:
-                insights_text = insights_match.group(1).strip()
+            gender_data = self._extract_gender_counts(response)
+            if gender_data:
+                men = gender_data.get('men_count', 0)
+                women = gender_data.get('women_count', 0)
                 
-                # Clean up and format insights text
-                insights = insights_text.replace('\n', ', ').replace(' - ', ', ').replace('-', ', ')
-                
-                # If empty, use default
-                if not insights:
-                    insights = 'Customers are actively shopping, Some customers are using shopping carts indicating larger purchases'
-        
+                if men > women:
+                    return f"More men ({men}) than women ({women}) in the store, suggesting male-oriented shopping preferences."
+                elif women > men:
+                    return f"More women ({women}) than men ({men}) in the store, suggesting female-oriented shopping preferences."
+                else:
+                    return f"Equal number of men and women ({men}) in the store, suggesting balanced shopping preferences."
+            
+            return "No specific insights available from this image."
         except Exception as e:
             logger.error(f"Error extracting insights: {str(e)}")
-            insights = 'Customers are actively shopping, Some customers are using shopping carts indicating larger purchases'
-        
-        return insights
+            return "No specific insights available from this image."
+    
+    def _extract_queue_info(self, response):
+        """Extract queue management information from model response."""
+        try:
+            result = {
+                'open_counters': 0,
+                'customers_in_queue': 0,
+                'avg_wait_time': 'Not specified',
+                'queue_efficiency': 'Not specified',
+                'recommendations': 'Not specified'
+            }
+            
+            # Extract number of open counters
+            counters_pattern = r'(\d+)\s*(?:checkout |open )?counters'
+            counters_match = re.search(counters_pattern, response, re.IGNORECASE)
+            if counters_match:
+                result['open_counters'] = int(counters_match.group(1))
+            
+            # Extract number of customers in queue
+            queue_pattern = r'(\d+)\s*customers?\s*(?:in|waiting|queuing)'
+            queue_match = re.search(queue_pattern, response, re.IGNORECASE)
+            if queue_match:
+                result['customers_in_queue'] = int(queue_match.group(1))
+            
+            # Extract queue efficiency
+            efficiency_pattern = r'queue management is\s*(\w+)'
+            efficiency_match = re.search(efficiency_pattern, response, re.IGNORECASE)
+            if efficiency_match:
+                result['queue_efficiency'] = efficiency_match.group(1)
+            
+            # If we found at least some info, return the result
+            if result['open_counters'] > 0 or result['customers_in_queue'] > 0:
+                return result
+            
+            # If we couldn't extract structured information, include the full response
+            result['full_response'] = response
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error extracting queue information: {str(e)}")
+            return None
 
 def get_model(use_small_model=True):
-    """Get a singleton instance of the ModelInference class."""
-    if not hasattr(get_model, "instance") or get_model.instance is None:
-        # Ignore the use_small_model parameter since we're only using LLaVA now
-        get_model.instance = ModelInference(use_small_model=False)
-    return get_model.instance 
+    """Get an instance of the ModelInference class."""
+    return ModelInference(use_small_model=use_small_model) 

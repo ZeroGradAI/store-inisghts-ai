@@ -3,22 +3,26 @@ Self-contained minimal implementation of LLaVA functionality.
 This avoids any imports from the actual LLaVA package.
 """
 
-import os
-import re
 import torch
+import os
+import importlib
+import numpy as np
+from PIL import Image
+import torch.nn as nn
+import torch.nn.functional as F
+from typing import List, Optional, Tuple, Union
 import logging
 import requests
 from io import BytesIO
-from PIL import Image
-from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig, CLIPVisionModel, CLIPImageProcessor
-import torch.nn as nn
-import importlib
-import numpy as np
-import torch.nn.functional as F
-from typing import List, Optional, Tuple, Union
+import sys
 
 # Configure logging
-logger = logging.getLogger(__name__)
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logger = logging.getLogger("ModelInference")
+
+# Hugging Face transformers imports
+from transformers import AutoTokenizer, AutoConfig, AutoModelForCausalLM
+from transformers import CLIPVisionModel, CLIPImageProcessor
 
 # Constants from llava.constants
 IMAGE_TOKEN_INDEX = -200
@@ -310,82 +314,111 @@ def image_parser(args):
     return args.image_file.split(args.sep)
 
 def eval_model(args):
-    """Evaluate the model on the given image and prompt."""
-    # Model
-    disable_torch_init()
-
+    """Evaluate the model with the given prompt and image."""
+    # Get model name from path
     model_name = get_model_name_from_path(args.model_path)
-    tokenizer, model, image_processor, context_len = load_pretrained_model(
-        args.model_path, args.model_base, model_name
-    )
-
-    qs = args.query
-    image_token_se = DEFAULT_IM_START_TOKEN + DEFAULT_IMAGE_TOKEN + DEFAULT_IM_END_TOKEN
-    if IMAGE_PLACEHOLDER in qs:
-        if model.config.mm_use_im_start_end:
-            qs = re.sub(IMAGE_PLACEHOLDER, image_token_se, qs)
+    
+    # Parse image paths
+    image_paths = [args.image_file]
+    
+    # Load images
+    images = load_images(image_paths)
+    
+    # Load model
+    try:
+        logger.info(f"Loading model: {args.model_path}")
+        tokenizer, model, image_processor, context_len = load_pretrained_model(
+            args.model_path, args.model_base, model_name
+        )
+        
+        # Process images
+        image_tensors = process_images(images, image_processor, model.config)
+        
+        # Prepare the prompt for the conversation
+        if hasattr(args, 'conv_mode') and args.conv_mode:
+            conv_mode = args.conv_mode
+        elif model_name.startswith(("llava-v1.5", "llava-v1.6")):
+            conv_mode = "llava_v1"
+        elif model_name.startswith("llava-llama-2"):
+            conv_mode = "llava_llama2"
+        elif model_name.startswith("mistral"):
+            conv_mode = "mistral"
         else:
-            qs = re.sub(IMAGE_PLACEHOLDER, DEFAULT_IMAGE_TOKEN, qs)
-    else:
-        if model.config.mm_use_im_start_end:
-            qs = image_token_se + "\n" + qs
+            conv_mode = "llava_v0"
+            
+        # Set up conversation
+        if conv_mode not in conv_templates:
+            logger.warning(f"Conversation mode {conv_mode} not found, using default")
+            conv_mode = "llava_v1"
+            
+        conv = conv_templates[conv_mode].copy()
+        
+        # Add default system prompt if it doesn't exist
+        if not conv.system:
+            conv.system = "You are a helpful vision and language assistant."
+        
+        # Prepare visual prompt
+        if image_tensors is not None:
+            if DEFAULT_IMAGE_TOKEN in args.query:
+                query = args.query
+            else:
+                query = DEFAULT_IMAGE_TOKEN + '\n' + args.query
+            
+            conv.append_message(conv.roles[0], query)
         else:
-            qs = DEFAULT_IMAGE_TOKEN + "\n" + qs
-
-    if "llama-2" in model_name.lower():
-        conv_mode = "llava_llama_2"
-    elif "mistral" in model_name.lower():
-        conv_mode = "mistral_instruct"
-    elif "v1.6-34b" in model_name.lower():
-        conv_mode = "chatml_direct"
-    elif "v1" in model_name.lower():
-        conv_mode = "llava_v1"
-    elif "mpt" in model_name.lower():
-        conv_mode = "mpt"
-    else:
-        conv_mode = "llava_v0"
-
-    if args.conv_mode is not None and conv_mode != args.conv_mode:
-        print(
-            "[WARNING] the auto inferred conversation mode is {}, while `--conv-mode` is {}, using {}".format(
-                conv_mode, args.conv_mode, args.conv_mode
+            conv.append_message(conv.roles[0], args.query)
+            
+        conv.append_message(conv.roles[1], None)
+        prompt = conv.get_prompt()
+        
+        # Prepare for text generation
+        input_ids = tokenizer_image_token(prompt, tokenizer, IMAGE_TOKEN_INDEX, return_tensors='pt').unsqueeze(0).cuda()
+        
+        # Set stop_str based on conversation mode
+        if conv_mode == "mistral":
+            stop_str = conv.sep
+        else:
+            stop_str = conv.sep if conv.sep_style == SeparatorStyle.SINGLE else conv.sep2
+            
+        # Capture output in a list rather than printing
+        stopping_criteria = StoppingCriteriaList()
+        outputs = []
+        
+        # Text generation
+        with torch.inference_mode():
+            output_ids = model.generate(
+                input_ids,
+                images=image_tensors,
+                do_sample=True,
+                temperature=args.temperature,
+                top_p=args.top_p,
+                num_beams=args.num_beams,
+                max_new_tokens=args.max_new_tokens,
+                use_cache=True
             )
-        )
-    else:
-        args.conv_mode = conv_mode
+            
+        # Process output
+        output = tokenizer.decode(output_ids[0, input_ids.shape[1]:]).strip()
+        
+        # If there's a stop string, truncate at that point
+        if stop_str and stop_str in output:
+            output = output[:output.find(stop_str)].strip()
+            
+        # Return the output
+        return output
+    
+    except Exception as e:
+        logger.error(f"Error in eval_model: {str(e)}")
+        logger.error("Stack trace:", exc_info=True)
+        return f"Error: {str(e)}"
 
-    conv = conv_templates[args.conv_mode].copy()
-    conv.append_message(conv.roles[0], qs)
-    conv.append_message(conv.roles[1], None)
-    prompt = conv.get_prompt()
-
-    image_files = image_parser(args)
-    images = load_images(image_files)
-    image_sizes = [x.size for x in images]
-    images_tensor = process_images(
-        images,
-        image_processor,
-        model.config
-    ).to(model.device, dtype=torch.float16)
-
-    input_ids = (
-        tokenizer_image_token(prompt, tokenizer, IMAGE_TOKEN_INDEX, return_tensors="pt")
-        .unsqueeze(0)
-        .cuda()
-    )
-
-    with torch.inference_mode():
-        output_ids = model.generate(
-            input_ids,
-            images=images_tensor,
-            image_sizes=image_sizes,
-            do_sample=True if args.temperature > 0 else False,
-            temperature=args.temperature,
-            top_p=args.top_p,
-            num_beams=args.num_beams,
-            max_new_tokens=args.max_new_tokens,
-            use_cache=True,
-        )
-
-    outputs = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
-    print(outputs) 
+# Define a helper class for StoppingCriteriaList (needed by the model)
+class StoppingCriteriaList:
+    def __init__(self):
+        self.criteria = []
+    
+    def __call__(self, *args, **kwargs):
+        return any(criterion(*args, **kwargs) for criterion in self.criteria)
+    
+    def append(self, criterion):
+        self.criteria.append(criterion) 

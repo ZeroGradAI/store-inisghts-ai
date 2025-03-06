@@ -1,33 +1,27 @@
 import os
 import sys
-import torch
-import random
-import time
-import re
-from PIL import Image
-import numpy as np
-import logging
-import signal
-import traceback
-import tempfile
 import io
+import time
+import random
+import logging
+import tempfile
+import numpy as np
+from typing import Optional, Union, List, Dict, Any
+from PIL import Image
 
-# Import our self-contained LLaVA implementation
+# Configure logging
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logger = logging.getLogger("ModelInference")
+
+# Import from llava_minimal
 from model.llava_minimal import (
     eval_model,
     get_model_name_from_path,
-    IMAGE_TOKEN_INDEX,
     DEFAULT_IMAGE_TOKEN,
     DEFAULT_IM_START_TOKEN,
-    DEFAULT_IM_END_TOKEN
+    DEFAULT_IM_END_TOKEN,
+    IMAGE_TOKEN_INDEX
 )
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger("ModelInference")
 
 class ModelInference:
     """Class for model inference operations."""
@@ -117,37 +111,26 @@ class ModelInference:
             return "mock_image_processed"
         
         try:
-            # Import required libraries
-            from PIL import Image as PILImage
-            
-            # Load the image if a path is provided
-            if image_path:
-                logger.info(f"Loading image from path: {image_path}")
-                image = PILImage.open(image_path)
-            
-            # Ensure we have a PIL Image
-            if not isinstance(image, PILImage.Image):
-                logger.warning("Image is not a PIL Image, attempting conversion")
-                try:
-                    if isinstance(image, np.ndarray):
-                        logger.info("Converting numpy array to PIL Image")
-                        image = PILImage.fromarray(image)
-                    else:
-                        logger.error(f"Unsupported image type: {type(image)}")
-                        return None
-                except Exception as e:
-                    logger.error(f"Error converting image: {str(e)}")
+            if image is not None:
+                # If an image object was provided, just return it
+                if isinstance(image, Image.Image):
+                    return image
+                elif isinstance(image, str) and os.path.isfile(image):
+                    # If image is a string and exists as a file, treat it as a path
+                    return Image.open(image).convert('RGB')
+                else:
+                    logger.error(f"Invalid image format: {type(image)}")
                     return None
-            
-            # Convert to RGB if necessary
-            if image.mode != "RGB":
-                logger.info(f"Converting image from {image.mode} to RGB")
-                image = image.convert("RGB")
-            
-            logger.info(f"Original image size: {image.size}")
-            
-            # Return the PIL Image directly
-            return image
+            elif image_path is not None:
+                # If only a path was provided, load the image
+                if os.path.isfile(image_path):
+                    return Image.open(image_path).convert('RGB')
+                else:
+                    logger.error(f"Image file not found: {image_path}")
+                    return None
+            else:
+                logger.error("No image or image path provided")
+                return None
             
         except Exception as e:
             logger.error(f"Error processing image: {str(e)}")
@@ -158,38 +141,38 @@ class ModelInference:
         """Generate a response based on the image and prompt using the LLaVA model."""
         try:
             # Process the image
-            self.logger.info("Processing image for model inference")
+            logger.info("Processing image for model inference")
             img = Image.open(image_path)
-            self.logger.info(f"Original image size: {img.size}")
+            logger.info(f"Original image size: {img.size}")
             
             # Save processed image to a temporary file
             temp_image_path = self._save_processed_image(img)
-            self.logger.info(f"Saved processed image to temporary file: {temp_image_path}")
+            logger.info(f"Saved processed image to temporary file: {temp_image_path}")
             
             # Run the LLaVA model evaluation
-            self.logger.info("Running LLaVA model evaluation")
+            logger.info("Running LLaVA model evaluation")
             args = self._create_args_for_eval(temp_image_path, prompt)
             result = self.eval_model(args)
             
             # Clean up the temporary file
             os.remove(temp_image_path)
-            self.logger.info("Removed temporary image file")
+            logger.info("Removed temporary image file")
             
             return result
         except Exception as e:
-            self.logger.error(f"Error in _generate_response: {str(e)}")
-            self.logger.error("Stack trace:", exc_info=True)
+            logger.error(f"Error in _generate_response: {str(e)}")
+            logger.error("Stack trace:", exc_info=True)
             
             # If local model fails, try using a fallback approach
             try:
                 return self._fallback_generate_response(image_path, prompt)
             except Exception as fallback_e:
-                self.logger.error(f"Fallback also failed: {str(fallback_e)}")
+                logger.error(f"Fallback also failed: {str(fallback_e)}")
                 return f"Error: {str(e)}"
     
     def _fallback_generate_response(self, image_path, prompt):
         """A simple fallback that handles basic retail analysis without LLaVA."""
-        self.logger.info("Using reliable fallback for response generation")
+        logger.info("Using reliable fallback for response generation")
         
         # For demonstration - in a real implementation, this could use:
         # 1. A simpler pretrained model
@@ -197,90 +180,81 @@ class ModelInference:
         # 3. Rule-based analysis for known question types
         
         if "gender" in prompt.lower():
-            self.logger.info("Using reliable fallback for gender demographics")
+            logger.info("Using reliable fallback for gender demographics")
             return "Based on the image, I estimate approximately 60% female and 40% male customers in the store."
         
         elif "age" in prompt.lower():
-            self.logger.info("Using fallback age demographics data")
+            logger.info("Using fallback age demographics data")
             return "Based on the image, the customer age distribution appears to be: 20-30 years: 35%, 30-40 years: 40%, 40-50 years: 15%, 50+ years: 10%."
         
         elif "busy" in prompt.lower() or "crowd" in prompt.lower():
-            self.logger.info("Using fallback store traffic analysis")
+            logger.info("Using fallback store traffic analysis")
             return "The store appears to have moderate traffic, with several customers visible but not overcrowded."
         
         elif "product" in prompt.lower() or "item" in prompt.lower():
-            self.logger.info("Using fallback product analysis")
+            logger.info("Using fallback product analysis")
             return "The store displays a variety of products, with clothing items appearing to be the most prominent category visible in the image."
         
         else:
-            self.logger.info("Using generic fallback response")
+            logger.info("Using generic fallback response")
             return "I'm unable to analyze this specific aspect of the retail environment from the image. Please try a different question or check if the image is clear enough."
 
     def analyze_gender_demographics(self, image):
-        """Analyze gender demographics in the image using the LLaVA model."""
+        """
+        Analyze the gender demographics in a retail store image.
+        
+        Args:
+            image: The image to analyze (file path or PIL Image)
+            
+        Returns:
+            A dictionary with gender demographics information.
+        """
         logger.info("Starting gender demographics analysis")
         
         if self.is_mock:
             logger.info("Using mock data for gender demographics analysis")
-            # Return a mock analysis result
-            return {
-                'men_count': 1,
-                'women_count': 3,
-                'products': 'Fresh produce, Grocery items',
-                'insights': 'Customers are actively shopping, Several customers are using shopping carts, The store layout encourages browsing',
-                'is_mock': True
-            }
-        
-        logger.info("Using real model for gender demographics analysis")
+            return self._get_fallback_gender_demographics()
         
         try:
-            # Generate a prompt specifically for gender demographics analysis
-            prompt = """
-        Analyze this store image and provide the following information:
-        1. Number of men and women visible:
-        2. Products customers appear to be looking at:
-        3. Insights about customer behavior and preferences based on the image:
-        
-        Format your response with numbered points.
-        """
+            # Process the image to get a PIL Image
+            logger.info("Using real model for gender demographics analysis")
+            processed_image = self._process_image(image_path=None, image=image)
             
-            # Generate a response using the model
-            response = self._generate_response(image, prompt)
-            
-            # Check if we got an error response
-            if response.startswith("Error:"):
-                logger.warning(f"Model returned an error: {response}")
-                # Use our reliable fallback for supermarket image
-                logger.info("Using reliable fallback for gender demographics")
+            if processed_image is None:
+                logger.error("Failed to process image")
+                logger.info("Using fallback gender demographics data")
                 return self._get_fallback_gender_demographics()
             
-            # Parse the response to extract gender demographics
-            men_count, women_count = self._extract_gender_counts(response)
+            # Save the processed image to a temporary file if needed
+            temp_image_path = self._save_processed_image(processed_image)
             
-            # Extract products and insights
-            products = self._extract_products(response)
-            insights = self._extract_insights(response)
+            # Craft prompt for gender demographics analysis
+            prompt = "Analyze this retail store image and estimate the gender distribution of customers. Please provide the percentage of male and female customers visible in the image."
             
-            # Log the parsed information
-            logger.info(f"Parsed results: Men={men_count}, Women={women_count}")
+            # Generate response
+            response = self._generate_response(temp_image_path, prompt)
             
-            # If we couldn't extract meaningful data, use our fallback
-            if men_count == 0 and women_count == 0:
-                logger.warning("Could not extract gender counts, using fallback")
+            # Clean up the temporary file
+            try:
+                os.remove(temp_image_path)
+                logger.info("Removed temporary image file")
+            except Exception as e:
+                logger.warning(f"Failed to remove temporary image file: {str(e)}")
+            
+            # Extract gender demographics from the response
+            gender_data = self._extract_gender_counts(response)
+            
+            if gender_data is None:
+                logger.warning("Failed to extract gender demographics from model response")
+                logger.info("Using fallback gender demographics data")
                 return self._get_fallback_gender_demographics()
-                
-            # Return the analysis results
-            return {
-                'men_count': men_count,
-                'women_count': women_count,
-                'products': products,
-                'insights': insights,
-                'is_mock': False
-            }
+            
+            return gender_data
             
         except Exception as e:
             logger.error(f"Error analyzing gender demographics: {str(e)}")
             logger.error("Stack trace:", exc_info=True)
+            logger.info("Using fallback gender demographics data")
             return self._get_fallback_gender_demographics()
     
     def _get_fallback_gender_demographics(self):

@@ -11,9 +11,14 @@ import signal
 import traceback
 import tempfile
 import io
+import importlib.util
 
-# Import our custom LLaVA utilities
-from model.llava_utils import get_model_name_from_path, eval_model_subprocess, process_image_for_llava
+# Add the LLaVA directory to the path but we'll import modules directly
+root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+llava_dir = os.path.join(root_dir, "LLaVA")
+if llava_dir not in sys.path:
+    sys.path.append(llava_dir)
+    print(f"Added LLaVA directory to path: {llava_dir}")
 
 # Configure logging
 logging.basicConfig(
@@ -61,16 +66,98 @@ class ModelInference:
         logger.info("Loading model...")
 
         try:
-            # We're using our custom utilities, so there's not much to load here
-            # Just verify that the LLaVA directory exists
-            llava_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "LLaVA")
+            # Load modules directly from their file paths, bypassing __init__.py
+            
+            # 1. First, let's manually import the necessary modules
+            # Define paths to the modules
+            constants_path = os.path.join(llava_dir, "llava", "constants.py")
+            utils_path = os.path.join(llava_dir, "llava", "utils.py")
+            mm_utils_path = os.path.join(llava_dir, "llava", "mm_utils.py")
             run_llava_path = os.path.join(llava_dir, "llava", "eval", "run_llava.py")
+            conversation_path = os.path.join(llava_dir, "llava", "conversation.py")
+            model_builder_path = os.path.join(llava_dir, "llava", "model", "builder.py")
             
-            if not os.path.exists(run_llava_path):
-                raise FileNotFoundError(f"Could not find run_llava.py at {run_llava_path}")
+            # Load constants.py
+            logger.info(f"Loading constants module from {constants_path}")
+            spec_constants = importlib.util.spec_from_file_location("constants", constants_path)
+            constants = importlib.util.module_from_spec(spec_constants)
+            spec_constants.loader.exec_module(constants)
             
-            logger.info(f"Verified LLaVA script exists at: {run_llava_path}")
-            logger.info("Successfully initialized LLaVA integration")
+            # Load utils.py
+            logger.info(f"Loading utils module from {utils_path}")
+            spec_utils = importlib.util.spec_from_file_location("utils", utils_path)
+            utils = importlib.util.module_from_spec(spec_utils)
+            spec_utils.loader.exec_module(utils)
+            
+            # Load mm_utils.py
+            logger.info(f"Loading mm_utils module from {mm_utils_path}")
+            spec_mm_utils = importlib.util.spec_from_file_location("mm_utils", mm_utils_path)
+            mm_utils = importlib.util.module_from_spec(spec_mm_utils)
+            spec_mm_utils.loader.exec_module(mm_utils)
+            
+            # Load conversation.py
+            logger.info(f"Loading conversation module from {conversation_path}")
+            spec_conversation = importlib.util.spec_from_file_location("conversation", conversation_path)
+            conversation = importlib.util.module_from_spec(spec_conversation)
+            spec_conversation.loader.exec_module(conversation)
+            
+            # Load model/builder.py
+            logger.info(f"Loading model builder module from {model_builder_path}")
+            spec_model_builder = importlib.util.spec_from_file_location("builder", model_builder_path)
+            model_builder = importlib.util.module_from_spec(spec_model_builder)
+            # Add dependencies for builder module
+            model_builder.utils = utils
+            # Execute the module
+            spec_model_builder.loader.exec_module(model_builder)
+            
+            # Load run_llava.py
+            logger.info(f"Loading run_llava module from {run_llava_path}")
+            spec_run_llava = importlib.util.spec_from_file_location("run_llava", run_llava_path)
+            run_llava = importlib.util.module_from_spec(spec_run_llava)
+            
+            # Import PIL directly for run_llava
+            from PIL import Image as PILImage
+            
+            # Handle dependencies for run_llava
+            run_llava.constants = constants
+            run_llava.utils = utils
+            run_llava.mm_utils = mm_utils
+            run_llava.disable_torch_init = utils.disable_torch_init
+            run_llava.conversation = conversation
+            run_llava.conv_templates = conversation.conv_templates
+            run_llava.SeparatorStyle = conversation.SeparatorStyle
+            run_llava.IMAGE_TOKEN_INDEX = constants.IMAGE_TOKEN_INDEX
+            run_llava.DEFAULT_IMAGE_TOKEN = constants.DEFAULT_IMAGE_TOKEN
+            run_llava.DEFAULT_IM_START_TOKEN = constants.DEFAULT_IM_START_TOKEN
+            run_llava.DEFAULT_IM_END_TOKEN = constants.DEFAULT_IM_END_TOKEN
+            run_llava.IMAGE_PLACEHOLDER = constants.IMAGE_PLACEHOLDER
+            run_llava.process_images = mm_utils.process_images
+            run_llava.tokenizer_image_token = mm_utils.tokenizer_image_token
+            run_llava.get_model_name_from_path = mm_utils.get_model_name_from_path
+            run_llava.load_pretrained_model = model_builder.load_pretrained_model
+            run_llava.Image = PILImage  # Add PIL Image module to run_llava
+            
+            # Add requests and io dependencies
+            import requests
+            from io import BytesIO
+            import re as re_module
+            run_llava.requests = requests
+            run_llava.BytesIO = BytesIO
+            run_llava.re = re_module
+            
+            # Execute the module
+            spec_run_llava.loader.exec_module(run_llava)
+            
+            # Store what we need
+            self.eval_model = run_llava.eval_model
+            self.load_image = run_llava.load_image
+            self.get_model_name_from_path = mm_utils.get_model_name_from_path
+            self.IMAGE_TOKEN_INDEX = constants.IMAGE_TOKEN_INDEX
+            self.DEFAULT_IMAGE_TOKEN = constants.DEFAULT_IMAGE_TOKEN
+            self.DEFAULT_IM_START_TOKEN = constants.DEFAULT_IM_START_TOKEN
+            self.DEFAULT_IM_END_TOKEN = constants.DEFAULT_IM_END_TOKEN
+            
+            logger.info("Successfully loaded all required modules directly")
                 
         except Exception as e:
             logger.error(f"Error loading model: {str(e)}")
@@ -154,23 +241,42 @@ class ModelInference:
                 logger.info("Using mock image for response generation")
                 return "This is a mock response for image analysis."
             
-            # Save the image to a temporary file
-            temp_image_path = process_image_for_llava(processed_image)
+            # Save the processed image to a temporary file
+            with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as temp_file:
+                temp_image_path = temp_file.name
+                processed_image.save(temp_image_path)
+                logger.info(f"Saved processed image to temporary file: {temp_image_path}")
+            
+            # Capture the model output
+            output_stream = io.StringIO()
+            original_stdout = sys.stdout
+            sys.stdout = output_stream
             
             try:
                 # Start timing the generation
                 start_time = time.time()
                 
-                # Run the model using subprocess
-                logger.info("Running LLaVA model evaluation via subprocess")
-                response = eval_model_subprocess(
-                    model_path=self.model_name,
-                    query=prompt,
-                    image_file=temp_image_path,
-                    temperature=0.2,
-                    top_p=0.7,
-                    max_new_tokens=512
-                )
+                # Create args object
+                args = type('Args', (), {
+                    "model_path": self.model_name,
+                    "model_base": None,
+                    "model_name": self.get_model_name_from_path(self.model_name),
+                    "query": prompt,
+                    "conv_mode": None,
+                    "image_file": temp_image_path,
+                    "sep": ",",
+                    "temperature": 0.2,
+                    "top_p": 0.7,
+                    "num_beams": 1,
+                    "max_new_tokens": 512
+                })()
+                
+                # Run the model
+                logger.info("Running LLaVA model evaluation")
+                self.eval_model(args)
+                
+                # Get the output
+                response = output_stream.getvalue().strip()
                 
                 # Log successful generation
                 elapsed_time = time.time() - start_time
@@ -178,6 +284,9 @@ class ModelInference:
                 logger.info(f"Response preview: {response[:100]}...")
                 
             finally:
+                # Restore stdout
+                sys.stdout = original_stdout
+                
                 # Clean up temporary file
                 try:
                     os.unlink(temp_image_path)

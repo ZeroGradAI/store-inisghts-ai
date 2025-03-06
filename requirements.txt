@@ -1,14 +1,18 @@
 streamlit==1.31.0
 torch>=2.1.0
 torchvision>=0.16.0
-transformers>=4.37.0
+transformers>=4.31.0
 pillow>=10.0.0
 pandas>=2.0.0
 plotly>=5.15.0
 numpy>=1.24.0
 scikit-learn>=1.2.0
 safetensors>=0.4.0
-accelerate>=0.21.0
+accelerate>=0.23.0
 sentencepiece>=0.1.99
 einops>=0.6.0
 requests>=2.31.0
+timm>=0.6.13
+Pillow>=9.5.0
+# Optional: uncomment if you need flash attention and have compatible hardware
+# flash-attn>=2.3.0

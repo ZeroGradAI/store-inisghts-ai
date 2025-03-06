@@ -11,6 +11,11 @@ import requests
 from io import BytesIO
 from PIL import Image
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig, CLIPVisionModel, CLIPImageProcessor
+import torch.nn as nn
+import importlib
+import numpy as np
+import torch.nn.functional as F
+from typing import List, Optional, Tuple, Union
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -222,6 +227,10 @@ def load_pretrained_model(model_path, model_base=None, model_name=None, load_8bi
     # Disable torch init to avoid redundant initialization
     disable_torch_init()
     
+    # Set environment variables to disable flash attention which is causing issues
+    os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "true"
+    os.environ["TORCH_INIT_FLASH_ATTENTION"] = "0"  # Disable flash attention
+    
     # Load tokenizer
     tokenizer = AutoTokenizer.from_pretrained(model_path)
     
@@ -238,33 +247,56 @@ def load_pretrained_model(model_path, model_base=None, model_name=None, load_8bi
         vision_model = CLIPVisionModel.from_pretrained(vision_tower)
         image_processor = CLIPImageProcessor.from_pretrained(vision_tower)
     
-    # Load the main model
+    # Multiple approaches to loading the model
     try:
-        if load_8bit:
-            model = AutoModelForCausalLM.from_pretrained(
-                model_path, torch_dtype=torch.float16, device_map="auto", load_in_8bit=True, trust_remote_code=True
-            )
-        elif load_4bit:
-            model = AutoModelForCausalLM.from_pretrained(
-                model_path, torch_dtype=torch.float16, device_map="auto", load_in_4bit=True, trust_remote_code=True
-            )
-        else:
-            model = AutoModelForCausalLM.from_pretrained(
-                model_path, torch_dtype=torch.float16, device_map="auto", trust_remote_code=True
-            )
+        print("Trying to load model with attn_implementation='eager'...")
+        model = AutoModelForCausalLM.from_pretrained(
+            model_path,
+            torch_dtype=torch.float16,
+            device_map="auto",
+            trust_remote_code=True,
+            attn_implementation='eager'  # Avoid using flash attention
+        )
     except Exception as e:
-        print(f"Error loading model: {e}")
-        # Try with a different approach
+        print(f"First attempt failed: {e}")
         try:
+            print("Trying direct LlavaForConditionalGeneration loading...")
             from transformers import LlavaForConditionalGeneration
             model = LlavaForConditionalGeneration.from_pretrained(
-                model_path, torch_dtype=torch.float16, device_map="auto"
+                model_path,
+                torch_dtype=torch.float16,
+                device_map="auto",
+                attn_implementation='eager'  # Avoid using flash attention
             )
         except Exception as e2:
             print(f"Second attempt failed: {e2}")
-            raise ValueError(f"Could not load model {model_path}")
+            try:
+                print("Trying to load with low_cpu_mem_usage=True...")
+                # Try with low CPU memory usage
+                model = AutoModelForCausalLM.from_pretrained(
+                    model_path,
+                    torch_dtype=torch.float16,
+                    device_map="auto",
+                    trust_remote_code=True,
+                    low_cpu_mem_usage=True,
+                    attn_implementation='eager'
+                )
+            except Exception as e3:
+                print(f"Third attempt failed: {e3}")
+                # Final attempt with base LlamaForCausalLM
+                try:
+                    print("Attempting to use LlamaForCausalLM directly...")
+                    from transformers import LlamaForCausalLM
+                    model = LlamaForCausalLM.from_pretrained(
+                        model_path,
+                        torch_dtype=torch.float16,
+                        device_map="auto"
+                    )
+                except Exception as e4:
+                    print(f"All attempts failed. Last error: {e4}")
+                    raise ValueError(f"Could not load model {model_path}. Please check model compatibility and requirements.")
     
-    # Set the vision tower for the model
+    # Set the vision tower for the model if needed
     if hasattr(model, "vision_tower") and not model.vision_tower:
         model.vision_tower = vision_model
     

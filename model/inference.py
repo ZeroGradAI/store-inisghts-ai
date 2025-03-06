@@ -152,7 +152,25 @@ class ModelInference:
                 return self._get_fallback_gender_demographics()
             
             # Craft prompt for gender demographics analysis with JSON response format
-            prompt = "USER: <image>\nAnalyze this retail store image for gender demographics. How many men and women do you see in the image and what products are they looking at? Please return your analysis as a JSON object with the following keys: men_count, women_count, products (list of products they are looking at), insights (your analysis of what this means for the store).\nASSISTANT:"
+            # Using simpler field names without underscores to avoid escape issues
+            prompt = """USER: <image>
+Analyze this retail store image for gender demographics. How many men and women do you see in the image and what products are they looking at?
+
+Please return your analysis as a JSON object with the following keys:
+- mencount: number of men in the image
+- womencount: number of women in the image
+- products: list of products they are looking at
+- insights: your analysis of what this means for the store
+
+Example format:
+{
+  "mencount": 2,
+  "womencount": 3,
+  "products": ["clothing", "electronics", "accessories"],
+  "insights": "More women than men suggesting a female-oriented shopping experience."
+}
+
+ASSISTANT:"""
             
             # Generate response
             response = self._generate_response(processed_image, prompt)
@@ -172,6 +190,13 @@ class ModelInference:
             # Add raw response to the results
             result['raw_response'] = response
             result['is_mock'] = False
+            
+            # Map new field names to old ones for backward compatibility
+            if 'mencount' in result and 'men_count' not in result:
+                result['men_count'] = result['mencount']
+            if 'womencount' in result and 'women_count' not in result:
+                result['women_count'] = result['womencount']
+                
             return result
             
         except Exception as e:
@@ -185,6 +210,8 @@ class ModelInference:
         return {
             'men_count': 1,
             'women_count': 3,
+            'mencount': 1,
+            'womencount': 3,
             'products': 'Fresh produce, Grocery items, Shopping carts',
             'insights': 'Customers are actively shopping and browsing products, Some customers are using shopping carts, indicating larger purchases, The store layout appears to encourage browsing through multiple aisles',
             'raw_response': 'This is mock data. No actual model response available.',
@@ -215,8 +242,33 @@ class ModelInference:
                 logger.error("Failed to process image")
                 return self._get_fallback_queue_management()
             
-            # Craft prompt for queue analysis
-            prompt = "USER: <image>\nAnalyze this retail store image for queue management. Get a count of how many counters are open and how many are closed? Also how many customers are waiting in line across all counters?. Any recommendations for improving the queue management? You should return a json object with the following keys: open_counters, closed_counters, total_counters, customers_in_queue, avg_wait_time, queue_efficiency, overcrowded_counters, recommendations\nASSISTANT:"
+            # Craft prompt for queue analysis with simpler field names
+            prompt = """USER: <image>
+Analyze this retail store image for queue management. Get a count of how many counters are open and how many are closed. Also how many customers are waiting in line across all counters? Any recommendations for improving the queue management?
+
+You should return a json object with the following keys:
+- opencounters: number of open counters
+- closedcounters: number of closed counters
+- totalcounters: total number of counters
+- customersinqueue: number of customers waiting in line
+- waittime: average wait time (estimate)
+- queueefficiency: how efficient is the queue management (0-1 or text)
+- overcrowded: boolean true/false if counters are overcrowded
+- recommendations: list of recommendations to improve queue management
+
+Example format:
+{
+  "opencounters": 3,
+  "closedcounters": 2,
+  "totalcounters": 5,
+  "customersinqueue": 10,
+  "waittime": "5-10 minutes",
+  "queueefficiency": "moderate",
+  "overcrowded": true,
+  "recommendations": ["Open more counters", "Add express lanes", "Improve customer flow"]
+}
+
+ASSISTANT:"""
             
             # Generate response
             response = self._generate_response(processed_image, prompt)
@@ -236,6 +288,22 @@ class ModelInference:
             # Add raw response to the results
             result['raw_response'] = response
             result['is_mock'] = False
+            
+            # Map new field names to old ones for backward compatibility
+            mapping = {
+                'opencounters': 'open_counters',
+                'closedcounters': 'closed_counters',
+                'totalcounters': 'total_counters',
+                'customersinqueue': 'customers_in_queue',
+                'waittime': 'avg_wait_time',
+                'queueefficiency': 'queue_efficiency',
+                'overcrowded': 'overcrowded_counters'
+            }
+            
+            for new_key, old_key in mapping.items():
+                if new_key in result and old_key not in result:
+                    result[old_key] = result[new_key]
+                    
             return result
             
         except Exception as e:
@@ -275,58 +343,111 @@ class ModelInference:
             
             # Parse the JSON data
             try:
+                # Clean up the JSON string
+                clean_json_str = json_str
+                
                 # Remove any markdown formatting or extra text
-                clean_json_str = re.sub(r'[\n\r\t]', ' ', json_str)
+                clean_json_str = re.sub(r'[\n\r\t]', ' ', clean_json_str)
+                
+                # Handle escaped underscores (common issue with AI models)
+                clean_json_str = clean_json_str.replace('\\_', '_')
                 
                 # Try to validate and parse the JSON
-                data = json.loads(clean_json_str)
+                try:
+                    data = json.loads(clean_json_str)
+                except json.JSONDecodeError:
+                    # Additional attempt: replace escaped characters more aggressively
+                    clean_json_str = re.sub(r'\\([^\\])', r'\1', clean_json_str)
+                    data = json.loads(clean_json_str)
+                
                 logger.info(f"Successfully parsed JSON data with keys: {list(data.keys())}")
                 
-                # For the specific analysis types, ensure required fields
+                # For the specific analysis types, ensure required fields with simplified names
                 if analysis_type == "gender_demographics":
-                    # Ensure required fields exist
-                    required_fields = ["men_count", "women_count", "products", "insights"]
-                    for field in required_fields:
+                    # Check for both old and new field names
+                    required_fields = {
+                        "mencount": 0, 
+                        "womencount": 0, 
+                        "products": "Not specified", 
+                        "insights": "Not specified"
+                    }
+                    
+                    # Also check for old field names for backward compatibility
+                    old_field_mapping = {
+                        "men_count": "mencount",
+                        "women_count": "womencount"
+                    }
+                    
+                    # Map old field names to new ones if they exist
+                    for old_field, new_field in old_field_mapping.items():
+                        if old_field in data and new_field not in data:
+                            data[new_field] = data[old_field]
+                    
+                    # Ensure all required fields exist
+                    for field, default_value in required_fields.items():
                         if field not in data:
                             logger.warning(f"Required field '{field}' missing from gender demographics JSON")
-                            data[field] = "Not specified" if field in ["products", "insights"] else 0
+                            data[field] = default_value
                 
                 elif analysis_type == "queue_management":
-                    # Ensure required fields exist
-                    required_fields = ["open_counters", "closed_counters", "total_counters", 
-                                     "customers_in_queue", "avg_wait_time", "queue_efficiency", 
-                                     "overcrowded_counters", "recommendations"]
-                    for field in required_fields:
+                    # Check for both old and new field names
+                    required_fields = {
+                        "opencounters": 0,
+                        "closedcounters": 0,
+                        "totalcounters": 0,
+                        "customersinqueue": 0,
+                        "waittime": "Not specified",
+                        "queueefficiency": "Not specified",
+                        "overcrowded": False,
+                        "recommendations": "Not specified"
+                    }
+                    
+                    # Also check for old field names for backward compatibility
+                    old_field_mapping = {
+                        "open_counters": "opencounters",
+                        "closed_counters": "closedcounters",
+                        "total_counters": "totalcounters",
+                        "customers_in_queue": "customersinqueue",
+                        "avg_wait_time": "waittime",
+                        "queue_efficiency": "queueefficiency",
+                        "overcrowded_counters": "overcrowded"
+                    }
+                    
+                    # Map old field names to new ones if they exist
+                    for old_field, new_field in old_field_mapping.items():
+                        if old_field in data and new_field not in data:
+                            data[new_field] = data[old_field]
+                    
+                    # Ensure all required fields exist
+                    for field, default_value in required_fields.items():
                         if field not in data:
                             logger.warning(f"Required field '{field}' missing from queue management JSON")
-                            if field in ["open_counters", "closed_counters", "total_counters", "customers_in_queue"]:
-                                data[field] = 0
-                            elif field == "overcrowded_counters":
-                                data[field] = False
-                            else:
-                                data[field] = "Not specified"
+                            data[field] = default_value
                     
-                    # Calculate total_counters if needed
-                    if data["total_counters"] == 0 and (data["open_counters"] > 0 or data["closed_counters"] > 0):
-                        data["total_counters"] = data["open_counters"] + data["closed_counters"]
-                        logger.info(f"Calculated total_counters: {data['total_counters']}")
+                    # Calculate totalcounters if needed
+                    if data["totalcounters"] == 0 and (data["opencounters"] > 0 or data["closedcounters"] > 0):
+                        data["totalcounters"] = data["opencounters"] + data["closedcounters"]
+                        logger.info(f"Calculated totalcounters: {data['totalcounters']}")
                     
-                    # Convert overcrowded_counters to boolean if it's a list or string
-                    if not isinstance(data["overcrowded_counters"], bool):
-                        if isinstance(data["overcrowded_counters"], list) and len(data["overcrowded_counters"]) > 0:
-                            logger.info(f"Found overcrowded counters: {data['overcrowded_counters']}")
-                            data["overcrowded_counters"] = True
-                        elif isinstance(data["overcrowded_counters"], str) and data["overcrowded_counters"] != "None" and data["overcrowded_counters"] != "":
-                            logger.info(f"Found overcrowded counters: {data['overcrowded_counters']}")
-                            data["overcrowded_counters"] = True
+                    # Convert overcrowded to boolean if it's not already
+                    if not isinstance(data["overcrowded"], bool):
+                        if isinstance(data["overcrowded"], list) and len(data["overcrowded"]) > 0:
+                            logger.info(f"Found overcrowded counters: {data['overcrowded']}")
+                            data["overcrowded"] = True
+                        elif isinstance(data["overcrowded"], (int, float)) and data["overcrowded"] > 0:
+                            logger.info(f"Found overcrowded counter count: {data['overcrowded']}")
+                            data["overcrowded"] = True
+                        elif isinstance(data["overcrowded"], str) and data["overcrowded"].lower() not in ["false", "none", "0", "", "no"]:
+                            logger.info(f"Found overcrowded string: {data['overcrowded']}")
+                            data["overcrowded"] = True
                         else:
-                            data["overcrowded_counters"] = False
+                            data["overcrowded"] = False
                 
                 return data
                 
             except json.JSONDecodeError as e:
                 logger.error(f"Failed to parse JSON: {str(e)}")
-                logger.error(f"JSON string attempted to parse: {json_str[:500]}")
+                logger.error(f"JSON string attempted to parse: {clean_json_str[:500]}")
                 
                 # If JSON parsing fails, fall back to the old extraction methods
                 if analysis_type == "gender_demographics":
@@ -336,6 +457,8 @@ class ModelInference:
                     insights = self._extract_insights(response)
                     
                     return {
+                        'mencount': gender_data.get('men_count', 0),
+                        'womencount': gender_data.get('women_count', 0),
                         'men_count': gender_data.get('men_count', 0),
                         'women_count': gender_data.get('women_count', 0),
                         'products': products,
@@ -343,7 +466,19 @@ class ModelInference:
                     }
                 elif analysis_type == "queue_management":
                     logger.info("Falling back to regex extraction for queue management")
-                    return self._extract_queue_info(response)
+                    queue_info = self._extract_queue_info(response)
+                    
+                    # Map old field names to new ones
+                    if queue_info:
+                        queue_info['opencounters'] = queue_info.get('open_counters', 0)
+                        queue_info['closedcounters'] = queue_info.get('closed_counters', 0)
+                        queue_info['totalcounters'] = queue_info.get('total_counters', 0)
+                        queue_info['customersinqueue'] = queue_info.get('customers_in_queue', 0)
+                        queue_info['waittime'] = queue_info.get('avg_wait_time', 'Not specified')
+                        queue_info['queueefficiency'] = queue_info.get('queue_efficiency', 'Not specified')
+                        queue_info['overcrowded'] = queue_info.get('overcrowded_counters', False)
+                    
+                    return queue_info
                 
                 return None
                 

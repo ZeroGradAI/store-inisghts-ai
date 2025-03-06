@@ -12,12 +12,8 @@ import traceback
 import tempfile
 import io
 
-# Add the LLaVA directory to the path
-root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-llava_dir = os.path.join(root_dir, "LLaVA")
-if llava_dir not in sys.path:
-    sys.path.append(llava_dir)
-    print(f"Added LLaVA directory to path: {llava_dir}")
+# Import our custom LLaVA utilities
+from model.llava_utils import get_model_name_from_path, eval_model_subprocess, process_image_for_llava
 
 # Configure logging
 logging.basicConfig(
@@ -65,19 +61,16 @@ class ModelInference:
         logger.info("Loading model...")
 
         try:
-            # Using the approach from the notebook
-            from llava.mm_utils import get_model_name_from_path
-            from llava.eval.run_llava import eval_model
+            # We're using our custom utilities, so there's not much to load here
+            # Just verify that the LLaVA directory exists
+            llava_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "LLaVA")
+            run_llava_path = os.path.join(llava_dir, "llava", "eval", "run_llava.py")
             
-            # We don't actually load the model here anymore - we'll load it on demand
-            # in _generate_response method
+            if not os.path.exists(run_llava_path):
+                raise FileNotFoundError(f"Could not find run_llava.py at {run_llava_path}")
             
-            # Just verify that we can import the necessary modules
-            logger.info("Successfully imported LLaVA modules")
-            
-            # Store these for later use
-            self.eval_model = eval_model
-            self.get_model_name_from_path = get_model_name_from_path
+            logger.info(f"Verified LLaVA script exists at: {run_llava_path}")
+            logger.info("Successfully initialized LLaVA integration")
                 
         except Exception as e:
             logger.error(f"Error loading model: {str(e)}")
@@ -161,43 +154,23 @@ class ModelInference:
                 logger.info("Using mock image for response generation")
                 return "This is a mock response for image analysis."
             
-            # Using the approach from the notebook
-            # Create a temporary file for the image
-            with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as temp_file:
-                temp_image_path = temp_file.name
-                processed_image.save(temp_image_path)
-                logger.info(f"Saved processed image to temporary file: {temp_image_path}")
-            
-            # Capture the model output
-            output_stream = io.StringIO()
-            original_stdout = sys.stdout
-            sys.stdout = output_stream
+            # Save the image to a temporary file
+            temp_image_path = process_image_for_llava(processed_image)
             
             try:
-                # Create args object
-                args = type('Args', (), {
-                    "model_path": self.model_name,
-                    "model_base": None,
-                    "model_name": self.get_model_name_from_path(self.model_name),
-                    "query": prompt,
-                    "conv_mode": None,
-                    "image_file": temp_image_path,
-                    "sep": ",",
-                    "temperature": 0.2,
-                    "top_p": 0.7,
-                    "num_beams": 1,
-                    "max_new_tokens": 512
-                })()
-                
                 # Start timing the generation
                 start_time = time.time()
                 
-                # Run the model
-                logger.info("Running LLaVA model evaluation")
-                self.eval_model(args)
-                
-                # Get the output
-                response = output_stream.getvalue().strip()
+                # Run the model using subprocess
+                logger.info("Running LLaVA model evaluation via subprocess")
+                response = eval_model_subprocess(
+                    model_path=self.model_name,
+                    query=prompt,
+                    image_file=temp_image_path,
+                    temperature=0.2,
+                    top_p=0.7,
+                    max_new_tokens=512
+                )
                 
                 # Log successful generation
                 elapsed_time = time.time() - start_time
@@ -205,9 +178,6 @@ class ModelInference:
                 logger.info(f"Response preview: {response[:100]}...")
                 
             finally:
-                # Restore stdout
-                sys.stdout = original_stdout
-                
                 # Clean up temporary file
                 try:
                     os.unlink(temp_image_path)

@@ -419,43 +419,23 @@ The solution addresses the root cause by ensuring proper position embedding conf
 - Enhanced logging to provide clearer information about the image processing steps
 - Updated documentation to reflect that MiniCPM-V handles its own image transformation internally 
 
-### Issue: LLaVA Import Error for LlavaLlamaForCausalLM
+### Issue: Persistent LLaVA Import Errors
 
-**Problem**: After cloning the LLaVA repository, users encounter an error when trying to run the application:
+**Problem**: Even after modifying the import system, we still encountered errors with importing LLaVA modules due to the structure of the repository and missing classes:
 ```
 ImportError: cannot import name 'LlavaLlamaForCausalLM' from 'llava.model'
 ```
-This happens because the structure of the LLaVA repository has changed, and the class we're trying to import is no longer available or has been renamed.
 
 **Solution**:
-- Completely rewrote the LLaVA integration to use the approach from the working notebook
-- Instead of trying to import and use specific model classes (LlavaLlamaForCausalLM), we now:
-  1. Use the eval_model function from llava.eval.run_llava
-  2. Save the processed image to a temporary file
-  3. Create an args object with the necessary parameters
-  4. Capture stdout to get the model's response
-- Added proper cleanup for temporary files
-- Enhanced error handling throughout the process
+- Created a custom `llava_utils.py` module with our own implementations of the necessary functions
+- Used a subprocess approach to run the LLaVA script directly instead of importing it
+- Implemented a clean interface that doesn't rely on the LLaVA package structure
+- Added proper error handling and logging for the subprocess calls
+- Created a modified `__init__.py` file in the LLaVA repository to handle missing classes
 
 **Learning**:
-1. When integrating with external libraries, it's safer to use their high-level APIs rather than directly accessing internal classes
-2. If something works in a notebook but not in the main application, adapt the approach from the notebook
-3. The structure and API of machine learning libraries may change between versions, so use more stable, documented interfaces
-4. Add proper error handling and logging to diagnose issues in deployment
-5. Always provide fallback mechanisms for when model loading or inference fails
-
-### Issue: Different Versions of LLaVA Repository
-
-**Problem**: The LLaVA repository structure and API may differ depending on which version/commit is cloned, leading to compatibility issues with our code.
-
-**Solution**:
-- Adapted our code to use the eval_model approach which is more likely to be stable across different versions
-- Added detailed setup instructions in the README that specify exactly how to clone the LLaVA repository
-- Enhanced error handling to gracefully fall back to mock data when import or model loading fails
-- Used a more high-level approach that doesn't rely on specific internal classes
-
-**Learning**:
-1. When depending on external repositories, pin to specific versions (tags or commits) when possible
-2. Build wrapper interfaces that can adapt to changes in the underlying libraries
-3. Test integration with external libraries in different environments before deploying
-4. Document the exact setup process, including which version of dependencies to use 
+1. When facing persistent import issues with external libraries, consider using subprocess calls instead of direct imports
+2. Create your own minimal implementations of the required functionality when possible
+3. Use multiple layers of fallback mechanisms to ensure robustness
+4. When working with machine learning models, always have a way to run inference that doesn't depend on specific package structures
+5. Document all workarounds thoroughly for future reference 

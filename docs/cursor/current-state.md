@@ -19,6 +19,8 @@ This document tracks the current state of the Store Insights AI project, includi
 - [x] Updated documentation to include LLaVA repository setup instructions
 - [x] Fixed import error for LlavaLlamaForCausalLM by adopting the eval_model approach
 - [x] Made integration more resilient to different versions of the LLaVA repository
+- [x] Created custom llava_utils.py with subprocess approach to avoid import issues
+- [x] Modified LLaVA __init__.py to handle missing classes gracefully
 
 ## In Progress
 

@@ -7,6 +7,11 @@ import plotly.graph_objects as go
 import sys
 import time
 import torch
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger("QueueManagement")
 
 # Add the app directory to the path to import modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -30,7 +35,19 @@ def analyze_queue_management(image):
         progress_bar.progress(i + 1)
     
     # Use the model to analyze the image
-    return model.analyze_queue_management(image)
+    results = model.analyze_queue_management(image)
+    
+    # Log the complete results for debugging
+    logger.info(f"Queue analysis results: {results}")
+    
+    # Log which keys are present in the results
+    present_keys = [key for key in ["open_counters", "closed_counters", "total_counters", 
+                                   "customers_in_queue", "avg_wait_time", "queue_efficiency", 
+                                   "overcrowded_counters", "recommendations", "is_mock"] 
+                   if key in results]
+    logger.info(f"Present keys in results: {present_keys}")
+    
+    return results
 
 def show():
     """Display the Queue Management Analysis page."""
@@ -69,24 +86,47 @@ def show():
             
             with col2:
                 st.subheader("Analysis Results")
-                st.metric("🔢 Total Counters", results["total_counters"])
-                st.metric("✅ Open Counters", results["open_counters"])
-                st.metric("❌ Closed Counters", results["closed_counters"])
-                st.metric("🧍 Customers in Queue", results["customers_in_queue"])
                 
-                # Display wait time if available
-                if "avg_wait_time" in results and results["avg_wait_time"] != "Not specified":
-                    st.metric("⏱️ Average Wait Time", results["avg_wait_time"])
+                # Counter information
+                counter_col1, counter_col2 = st.columns(2)
+                with counter_col1:
+                    st.metric("🔢 Total Counters", results["total_counters"])
+                    st.metric("✅ Open Counters", results["open_counters"])
+                with counter_col2:
+                    st.metric("❌ Closed Counters", results["closed_counters"])
+                    st.metric("🧍 Customers in Queue", results["customers_in_queue"])
                 
-                # Display overcrowded status as a boolean
+                # Create separate space for wait time and status
+                st.markdown("---")
+                st.subheader("Wait Time & Status")
+                
+                # Only show wait time if there are customers in queue
+                if results["customers_in_queue"] > 0:
+                    if "avg_wait_time" in results and results["avg_wait_time"] not in ["Not specified", "Not enough data"]:
+                        st.info(f"⏱️ Average Wait Time: **{results['avg_wait_time']}**")
+                    else:
+                        st.info("⏱️ Average Wait Time: **Not available**")
+                else:
+                    st.info("⏱️ No customers in queue - no wait time")
+                
+                # Display overcrowded status with clearer formatting
                 if "overcrowded_counters" in results:
                     if results["overcrowded_counters"] == True:
-                        st.warning("⚠️ Checkout counters are overcrowded!")
+                        st.warning("⚠️ **Checkout counters are overcrowded!**")
                     elif results["customers_in_queue"] > 0:
-                        st.success("✅ Queue management is efficient")
+                        st.success("✅ **Queue management is efficient**")
+                    else:
+                        st.success("✅ **No waiting customers**")
                 
-                st.markdown("### AI Recommendations")
+                # Recommendations in separate section
+                st.markdown("---")
+                st.subheader("AI Recommendations")
                 st.markdown(results["recommendations"])
+                
+                # Debug information (in collapsed section for developers)
+                with st.expander("Debug Information"):
+                    st.write("Raw response data:")
+                    st.json(results)
     else:
         # Display sample images
         st.markdown("### Sample Images")
@@ -131,24 +171,47 @@ def show():
                             
                             with col2:
                                 st.subheader("Analysis Results")
-                                st.metric("🔢 Total Counters", results["total_counters"])
-                                st.metric("✅ Open Counters", results["open_counters"])
-                                st.metric("❌ Closed Counters", results["closed_counters"])
-                                st.metric("🧍 Customers in Queue", results["customers_in_queue"])
                                 
-                                # Display wait time if available
-                                if "avg_wait_time" in results and results["avg_wait_time"] != "Not specified":
-                                    st.metric("⏱️ Average Wait Time", results["avg_wait_time"])
+                                # Counter information
+                                counter_col1, counter_col2 = st.columns(2)
+                                with counter_col1:
+                                    st.metric("🔢 Total Counters", results["total_counters"])
+                                    st.metric("✅ Open Counters", results["open_counters"])
+                                with counter_col2:
+                                    st.metric("❌ Closed Counters", results["closed_counters"])
+                                    st.metric("🧍 Customers in Queue", results["customers_in_queue"])
                                 
-                                # Display overcrowded status as a boolean
+                                # Create separate space for wait time and status
+                                st.markdown("---")
+                                st.subheader("Wait Time & Status")
+                                
+                                # Only show wait time if there are customers in queue
+                                if results["customers_in_queue"] > 0:
+                                    if "avg_wait_time" in results and results["avg_wait_time"] not in ["Not specified", "Not enough data"]:
+                                        st.info(f"⏱️ Average Wait Time: **{results['avg_wait_time']}**")
+                                    else:
+                                        st.info("⏱️ Average Wait Time: **Not available**")
+                                else:
+                                    st.info("⏱️ No customers in queue - no wait time")
+                                
+                                # Display overcrowded status with clearer formatting
                                 if "overcrowded_counters" in results:
                                     if results["overcrowded_counters"] == True:
-                                        st.warning("⚠️ Checkout counters are overcrowded!")
+                                        st.warning("⚠️ **Checkout counters are overcrowded!**")
                                     elif results["customers_in_queue"] > 0:
-                                        st.success("✅ Queue management is efficient")
+                                        st.success("✅ **Queue management is efficient**")
+                                    else:
+                                        st.success("✅ **No waiting customers**")
                                 
-                                st.markdown("### AI Recommendations")
+                                # Recommendations in separate section
+                                st.markdown("---")
+                                st.subheader("AI Recommendations")
                                 st.markdown(results["recommendations"])
+                                
+                                # Debug information (in collapsed section for developers)
+                                with st.expander("Debug Information"):
+                                    st.write("Raw response data:")
+                                    st.json(results)
         else:
             st.info("Sample images not found. Please upload your own image.")
 

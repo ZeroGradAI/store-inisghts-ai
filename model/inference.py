@@ -126,7 +126,7 @@ class ModelInference:
             logger.error(f"Error in generate_response: {str(e)}")
             logger.error("Stack trace:", exc_info=True)
             return f"Error generating response: {str(e)}"
-    
+
     def analyze_gender_demographics(self, image):
         """
         Analyze the gender demographics in a retail store image.
@@ -248,7 +248,7 @@ class ModelInference:
             'recommendations': 'Consider opening additional checkout lanes during peak hours, Implement express lanes for customers with fewer items',
             'is_mock': True
         }
-    
+
     def _extract_gender_counts(self, response):
         """Extract gender counts from model response."""
         try:
@@ -386,6 +386,8 @@ class ModelInference:
     def _extract_queue_info(self, response):
         """Extract queue management information from model response."""
         try:
+            logger.info(f"Extracting queue info from response: {response[:100]}...")  # Log only first 100 chars for brevity
+            
             result = {
                 'open_counters': 0,
                 'closed_counters': 0,
@@ -402,49 +404,61 @@ class ModelInference:
             total_counters_match = re.search(total_counters_pattern, response, re.IGNORECASE)
             if total_counters_match:
                 result['total_counters'] = int(total_counters_match.group(1))
+                logger.info(f"Matched total counters: {result['total_counters']}")
             
             # Extract number of open counters
             open_counters_pattern = r'(\d+)\s*(?:checkout |open )?counters'
             open_counters_match = re.search(open_counters_pattern, response, re.IGNORECASE)
             if open_counters_match:
                 result['open_counters'] = int(open_counters_match.group(1))
+                logger.info(f"Matched open counters: {result['open_counters']}")
             
             # Extract number of closed counters explicitly
             closed_counters_pattern = r'(\d+)\s*(?:closed|inactive|unused)\s*counters'
             closed_counters_match = re.search(closed_counters_pattern, response, re.IGNORECASE)
             if closed_counters_match:
                 result['closed_counters'] = int(closed_counters_match.group(1))
+                logger.info(f"Matched closed counters: {result['closed_counters']}")
             
             # Calculate closed or total counters if needed
             if result['total_counters'] > 0 and result['open_counters'] > 0 and result['closed_counters'] == 0:
                 # If we have total and open but not closed, calculate closed
                 result['closed_counters'] = result['total_counters'] - result['open_counters']
+                logger.info(f"Calculated closed counters: {result['closed_counters']} (total - open)")
             elif result['total_counters'] == 0 and result['open_counters'] > 0 and result['closed_counters'] > 0:
                 # If we have open and closed but not total, calculate total
                 result['total_counters'] = result['open_counters'] + result['closed_counters']
+                logger.info(f"Calculated total counters: {result['total_counters']} (open + closed)")
             elif result['total_counters'] == 0 and result['open_counters'] == 0 and result['closed_counters'] == 0:
                 # If we couldn't extract any counter information, set default values
                 result['open_counters'] = 2
                 result['closed_counters'] = 1
                 result['total_counters'] = 3
+                logger.info("Using default counter values because no counters were found in the response")
             elif result['total_counters'] == 0:
                 # If we just don't have a total, calculate it
                 result['total_counters'] = result['open_counters'] + result['closed_counters']
+                logger.info(f"Calculated total counters: {result['total_counters']} (open + closed)")
             elif result['closed_counters'] == 0 and result['total_counters'] > result['open_counters']:
                 # If we just don't have closed counters, calculate it
                 result['closed_counters'] = result['total_counters'] - result['open_counters']
+                logger.info(f"Calculated closed counters: {result['closed_counters']} (total - open)")
             
             # Extract number of customers in queue
             queue_pattern = r'(\d+)\s*customers?\s*(?:in|waiting|queuing)'
             queue_match = re.search(queue_pattern, response, re.IGNORECASE)
             if queue_match:
                 result['customers_in_queue'] = int(queue_match.group(1))
+                logger.info(f"Matched customers in queue: {result['customers_in_queue']}")
+            else:
+                logger.info("No customers in queue pattern found in response")
             
             # Extract queue efficiency
             efficiency_pattern = r'queue management is\s*(\w+)'
             efficiency_match = re.search(efficiency_pattern, response, re.IGNORECASE)
             if efficiency_match:
                 result['queue_efficiency'] = efficiency_match.group(1)
+                logger.info(f"Matched queue efficiency: {result['queue_efficiency']}")
             
             # Determine if counters are overcrowded
             # We'll say it's overcrowded if there are more than 3 customers per open counter
@@ -462,6 +476,10 @@ class ModelInference:
                 else:
                     result['avg_wait_time'] = 'More than 10 minutes'
                 
+                logger.info(f"Customers per counter: {customers_per_counter:.1f}")
+                logger.info(f"Overcrowded: {result['overcrowded_counters']}")
+                logger.info(f"Wait time estimate: {result['avg_wait_time']}")
+                
                 # Add recommendations based on crowding
                 if result['overcrowded_counters']:
                     result['recommendations'] = 'Open more checkout counters to reduce wait times, Consider implementing a queue management system'
@@ -471,24 +489,32 @@ class ModelInference:
                 # Default values if we couldn't extract meaningful data
                 result['overcrowded_counters'] = False
                 result['avg_wait_time'] = 'Not enough data'
-                result['recommendations'] = 'Ensure adequate staffing during peak hours'
+                if result['customers_in_queue'] == 0:
+                    result['recommendations'] = 'No customers waiting. Maintain current staffing levels during non-peak hours.'
+                else:
+                    result['recommendations'] = 'Ensure adequate staffing during peak hours'
+                
+                logger.info("No crowding calculation possible (missing open counters or customers in queue)")
+                logger.info(f"Open counters: {result['open_counters']}, Customers in queue: {result['customers_in_queue']}")
             
             # Look for explicit mentions of overcrowding in the text
             if 'overcrowd' in response.lower() or 'long wait' in response.lower() or 'long line' in response.lower():
                 result['overcrowded_counters'] = True
-                if 'recommendations' not in result or result['recommendations'] == 'Not specified':
+                if result['recommendations'] == 'Not specified':
                     result['recommendations'] = 'Open more checkout counters to reduce wait times'
+                logger.info("Detected explicit mention of overcrowding or long wait")
             
             # Set is_mock flag to indicate this is real data
             result['is_mock'] = False
             
-            # Log the extracted data
-            logger.info(f"Extracted queue info: {result}")
+            # Log the final result keys
+            logger.info(f"Final queue info keys: {list(result.keys())}")
             
             return result
                 
         except Exception as e:
             logger.error(f"Error extracting queue information: {str(e)}")
+            logger.error("Stack trace:", exc_info=True)
             return self._get_fallback_queue_management()
 
 def get_model(use_small_model=True):

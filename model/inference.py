@@ -9,6 +9,8 @@ import numpy as np
 import logging
 import signal
 import traceback
+import tempfile
+import io
 
 # Add the LLaVA directory to the path
 root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -51,6 +53,7 @@ class ModelInference:
                 logger.info(f"Model loaded successfully!")
             except Exception as e:
                 logger.error(f"Error loading model: {str(e)}")
+                logger.error("Stack trace:", exc_info=True)
                 logger.warning(f"Falling back to mock data.")
                 self.is_mock = True  # Ensure is_mock is True if model loading fails
         else:
@@ -62,44 +65,20 @@ class ModelInference:
         logger.info("Loading model...")
 
         try:
-            from llava.constants import IMAGE_TOKEN_INDEX
-            from llava.model.builder import load_pretrained_model
-            from llava.utils import disable_torch_init
+            # Using the approach from the notebook
             from llava.mm_utils import get_model_name_from_path
-
-            # Disable torch init to avoid unnecessary initializations
-            disable_torch_init()
+            from llava.eval.run_llava import eval_model
             
-            # Set device
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            logger.info(f"Using device: {device}")
+            # We don't actually load the model here anymore - we'll load it on demand
+            # in _generate_response method
             
-            # Get the model name and load the model
-            model_name = get_model_name_from_path(self.model_name)
-            logger.info(f"Loading model {model_name} from Hugging Face")
+            # Just verify that we can import the necessary modules
+            logger.info("Successfully imported LLaVA modules")
             
-            # Load model components using LLaVA's loader
-            tokenizer, model, image_processor, context_len = load_pretrained_model(
-                self.model_name,
-                model_base=None,
-                model_name=model_name
-            )
-            
-            # Store model components
-            self.tokenizer = tokenizer
-            self.model = model
-            self.image_processor = image_processor
-            self.context_len = context_len
-            
-            # Log device information
-            if torch.cuda.is_available():
-                device_name = torch.cuda.get_device_name(0)
-                logger.info(f"Model loaded on CUDA device: {device_name}")
-            else:
-                logger.info("Model loaded on CPU")
+            # Store these for later use
+            self.eval_model = eval_model
+            self.get_model_name_from_path = get_model_name_from_path
                 
-            logger.info("Model and tokenizer loaded successfully")
-            
         except Exception as e:
             logger.error(f"Error loading model: {str(e)}")
             logger.error("Stack trace:", exc_info=True)
@@ -170,10 +149,6 @@ class ModelInference:
             return random.choice(mock_responses)
         
         try:
-            from llava.constants import IMAGE_TOKEN_INDEX
-            from llava.conversation import conv_templates
-            from llava.mm_utils import process_images, tokenizer_image_token
-            
             # Process the image to get a PIL Image
             logger.info("Processing image for model inference")
             processed_image = self._process_image(image=image)
@@ -186,78 +161,59 @@ class ModelInference:
                 logger.info("Using mock image for response generation")
                 return "This is a mock response for image analysis."
             
-            # Determine conversation mode based on model name
-            if "llama-2" in self.model_name.lower():
-                conv_mode = "llava_llama_2"
-            elif "mistral" in self.model_name.lower():
-                conv_mode = "mistral_instruct"
-            elif "v1.6-34b" in self.model_name.lower():
-                conv_mode = "chatml_direct"
-            elif "v1" in self.model_name.lower():
-                conv_mode = "llava_v1"
-            elif "mpt" in self.model_name.lower():
-                conv_mode = "mpt"
-            else:
-                conv_mode = "llava_v0"
+            # Using the approach from the notebook
+            # Create a temporary file for the image
+            with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as temp_file:
+                temp_image_path = temp_file.name
+                processed_image.save(temp_image_path)
+                logger.info(f"Saved processed image to temporary file: {temp_image_path}")
+            
+            # Capture the model output
+            output_stream = io.StringIO()
+            original_stdout = sys.stdout
+            sys.stdout = output_stream
+            
+            try:
+                # Create args object
+                args = type('Args', (), {
+                    "model_path": self.model_name,
+                    "model_base": None,
+                    "model_name": self.get_model_name_from_path(self.model_name),
+                    "query": prompt,
+                    "conv_mode": None,
+                    "image_file": temp_image_path,
+                    "sep": ",",
+                    "temperature": 0.2,
+                    "top_p": 0.7,
+                    "num_beams": 1,
+                    "max_new_tokens": 512
+                })()
                 
-            logger.info(f"Using conversation mode: {conv_mode}")
-            
-            # Create conversation template and add user message
-            conv = conv_templates[conv_mode].copy()
-            
-            # For LLaVA v1.5, we need to add the image token before the prompt
-            from llava.constants import DEFAULT_IMAGE_TOKEN, DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN
-            
-            # Add image token to prompt based on model configuration
-            if hasattr(self.model.config, 'mm_use_im_start_end') and self.model.config.mm_use_im_start_end:
-                image_token = DEFAULT_IM_START_TOKEN + DEFAULT_IMAGE_TOKEN + DEFAULT_IM_END_TOKEN
-                user_message = image_token + "\n" + prompt
-            else:
-                user_message = DEFAULT_IMAGE_TOKEN + "\n" + prompt
+                # Start timing the generation
+                start_time = time.time()
                 
-            # Add the message to the conversation
-            conv.append_message(conv.roles[0], user_message)
-            conv.append_message(conv.roles[1], None)
-            prompt = conv.get_prompt()
-            
-            # Process the image
-            images = [processed_image]
-            image_sizes = [processed_image.size]
-            images_tensor = process_images(
-                images,
-                self.image_processor,
-                self.model.config
-            ).to(self.model.device, dtype=torch.float16)
-            
-            # Prepare input IDs
-            input_ids = tokenizer_image_token(
-                prompt, self.tokenizer, IMAGE_TOKEN_INDEX, return_tensors="pt"
-            ).unsqueeze(0).to(self.model.device)
-            
-            # Start timing the generation
-            start_time = time.time()
-            
-            # Generate response with the model
-            with torch.inference_mode():
-                logger.info("Generating response...")
-                output_ids = self.model.generate(
-                    input_ids,
-                    images=images_tensor,
-                    image_sizes=image_sizes,
-                    do_sample=True,
-                    temperature=0.2,
-                    top_p=0.7,
-                    max_new_tokens=512,
-                    use_cache=True,
-                )
+                # Run the model
+                logger.info("Running LLaVA model evaluation")
+                self.eval_model(args)
                 
-            # Decode the generated response
-            response = self.tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
-            
-            # Log successful generation
-            elapsed_time = time.time() - start_time
-            logger.info(f"Response generated in {elapsed_time:.2f} seconds")
-            logger.info(f"Response preview: {response[:100]}...")
+                # Get the output
+                response = output_stream.getvalue().strip()
+                
+                # Log successful generation
+                elapsed_time = time.time() - start_time
+                logger.info(f"Response generated in {elapsed_time:.2f} seconds")
+                logger.info(f"Response preview: {response[:100]}...")
+                
+            finally:
+                # Restore stdout
+                sys.stdout = original_stdout
+                
+                # Clean up temporary file
+                try:
+                    os.unlink(temp_image_path)
+                    logger.info(f"Removed temporary image file")
+                except Exception as e:
+                    logger.warning(f"Failed to remove temporary image file: {str(e)}")
             
             return response
                 

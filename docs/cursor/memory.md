@@ -419,25 +419,43 @@ The solution addresses the root cause by ensuring proper position embedding conf
 - Enhanced logging to provide clearer information about the image processing steps
 - Updated documentation to reflect that MiniCPM-V handles its own image transformation internally 
 
-### Issue: LLaVA Import Path Issues
+### Issue: LLaVA Import Error for LlavaLlamaForCausalLM
 
-**Problem**: The LLaVA repository is cloned to the root directory but is not in the Python path, causing import errors when trying to use its modules.
+**Problem**: After cloning the LLaVA repository, users encounter an error when trying to run the application:
+```
+ImportError: cannot import name 'LlavaLlamaForCausalLM' from 'llava.model'
+```
+This happens because the structure of the LLaVA repository has changed, and the class we're trying to import is no longer available or has been renamed.
 
 **Solution**:
-- Added code to the beginning of `inference.py` to add the LLaVA directory to the system path:
-  ```python
-  # Add the LLaVA directory to the path
-  root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-  llava_dir = os.path.join(root_dir, "LLaVA")
-  if llava_dir not in sys.path:
-      sys.path.append(llava_dir)
-  ```
-- Created clear documentation in the README file explaining how to clone the LLaVA repository
-- Added a README in the LLaVA directory explaining its purpose and setup
-- Made sure the LLaVA directory would be included in version control
+- Completely rewrote the LLaVA integration to use the approach from the working notebook
+- Instead of trying to import and use specific model classes (LlavaLlamaForCausalLM), we now:
+  1. Use the eval_model function from llava.eval.run_llava
+  2. Save the processed image to a temporary file
+  3. Create an args object with the necessary parameters
+  4. Capture stdout to get the model's response
+- Added proper cleanup for temporary files
+- Enhanced error handling throughout the process
 
-**Learning**: 
-1. When integrating external repositories, make sure the import paths are correctly set up
-2. Document the setup process clearly for other developers
-3. When possible, use package installation with `pip install -e .` rather than manual path manipulation
-4. Consider using relative imports when appropriate to reduce dependency on path configuration 
+**Learning**:
+1. When integrating with external libraries, it's safer to use their high-level APIs rather than directly accessing internal classes
+2. If something works in a notebook but not in the main application, adapt the approach from the notebook
+3. The structure and API of machine learning libraries may change between versions, so use more stable, documented interfaces
+4. Add proper error handling and logging to diagnose issues in deployment
+5. Always provide fallback mechanisms for when model loading or inference fails
+
+### Issue: Different Versions of LLaVA Repository
+
+**Problem**: The LLaVA repository structure and API may differ depending on which version/commit is cloned, leading to compatibility issues with our code.
+
+**Solution**:
+- Adapted our code to use the eval_model approach which is more likely to be stable across different versions
+- Added detailed setup instructions in the README that specify exactly how to clone the LLaVA repository
+- Enhanced error handling to gracefully fall back to mock data when import or model loading fails
+- Used a more high-level approach that doesn't rely on specific internal classes
+
+**Learning**:
+1. When depending on external repositories, pin to specific versions (tags or commits) when possible
+2. Build wrapper interfaces that can adapt to changes in the underlying libraries
+3. Test integration with external libraries in different environments before deploying
+4. Document the exact setup process, including which version of dependencies to use 

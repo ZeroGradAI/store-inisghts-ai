@@ -17,6 +17,8 @@ This document tracks the current state of the Store Insights AI project, includi
 - [x] Maintained fallback mechanism for systems without GPU
 - [x] Fixed import paths to properly include the LLaVA directory
 - [x] Updated documentation to include LLaVA repository setup instructions
+- [x] Fixed import error for LlavaLlamaForCausalLM by adopting the eval_model approach
+- [x] Made integration more resilient to different versions of the LLaVA repository
 
 ## In Progress
 

@@ -9,6 +9,7 @@
 - Improved documentation including feature design and current state
 - Python path fix to properly import LLaVA modules
 - LLaVA directory README and setup instructions
+- Temporary file handling for saving processed images
 
 ### Changed
 - Replaced MiniCPM and Phi models with LLaVA model in inference.py
@@ -16,6 +17,8 @@
 - Modified response generation and parsing for LLaVA's output format
 - Changed model references throughout the codebase
 - Updated main README with detailed LLaVA setup instructions
+- Rewritten model loading and inference to use the eval_model approach instead of directly importing model classes
+- Enhanced error handling and fallback mechanisms
 
 ### Removed
 - MiniCPM and Phi model-specific code

@@ -71,7 +71,23 @@ def show():
                 st.metric("👩 Women Count", results["women_count"])
                 
                 st.markdown("### Products of Interest")
-                st.write(results["products"])
+                
+                # Format products list for better display
+                products = results["products"]
+                if isinstance(products, list):
+                    # If products is a list, display each item as a bullet point
+                    for product in products:
+                        st.markdown(f"• {product}")
+                elif isinstance(products, str):
+                    # If it's a comma-separated string, split and format
+                    if "," in products:
+                        for product in products.split(","):
+                            st.markdown(f"• {product.strip()}")
+                    else:
+                        st.markdown(f"• {products}")
+                else:
+                    # Fallback
+                    st.write(products)
                 
                 st.markdown("### Insights")
                 st.write(results["insights"])
@@ -135,7 +151,23 @@ def show():
                                 st.metric("👩 Women Count", results["women_count"])
                                 
                                 st.markdown("### Products of Interest")
-                                st.write(results["products"])
+                                
+                                # Format products list for better display
+                                products = results["products"]
+                                if isinstance(products, list):
+                                    # If products is a list, display each item as a bullet point
+                                    for product in products:
+                                        st.markdown(f"• {product}")
+                                elif isinstance(products, str):
+                                    # If it's a comma-separated string, split and format
+                                    if "," in products:
+                                        for product in products.split(","):
+                                            st.markdown(f"• {product.strip()}")
+                                    else:
+                                        st.markdown(f"• {products}")
+                                else:
+                                    # Fallback
+                                    st.write(products)
                                 
                                 st.markdown("### Insights")
                                 st.write(results["insights"])

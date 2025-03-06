@@ -124,7 +124,23 @@ def show():
             # Section 3: Recommendations
             st.markdown("---")
             st.subheader("AI Recommendations")
-            st.markdown(results["recommendations"])
+            
+            # Format recommendations for better display
+            recommendations = results["recommendations"]
+            if isinstance(recommendations, list):
+                # If recommendations is a list, display each item as a bullet point
+                for recommendation in recommendations:
+                    st.markdown(f"• {recommendation}")
+            elif isinstance(recommendations, str):
+                # If it's a comma-separated string, split and format
+                if "," in recommendations:
+                    for recommendation in recommendations.split(","):
+                        st.markdown(f"• {recommendation.strip()}")
+                else:
+                    st.markdown(recommendations)
+            else:
+                # Fallback
+                st.write(recommendations)
             
             # Debug information (in collapsed section for developers)
             with st.expander("Debug Information"):
@@ -220,7 +236,23 @@ def show():
                             # Section 3: Recommendations
                             st.markdown("---")
                             st.subheader("AI Recommendations")
-                            st.markdown(results["recommendations"])
+                            
+                            # Format recommendations for better display
+                            recommendations = results["recommendations"]
+                            if isinstance(recommendations, list):
+                                # If recommendations is a list, display each item as a bullet point
+                                for recommendation in recommendations:
+                                    st.markdown(f"• {recommendation}")
+                            elif isinstance(recommendations, str):
+                                # If it's a comma-separated string, split and format
+                                if "," in recommendations:
+                                    for recommendation in recommendations.split(","):
+                                        st.markdown(f"• {recommendation.strip()}")
+                                else:
+                                    st.markdown(recommendations)
+                            else:
+                                # Fallback
+                                st.write(recommendations)
                             
                             # Debug information (in collapsed section for developers)
                             with st.expander("Debug Information"):

@@ -8,3 +8,4 @@ bitsandbytes==0.45.3
 pillow>=10.0.0
 numpy>=1.24.0
 tqdm>=4.66.0
+plotly

@@ -204,7 +204,6 @@ def main():
             st.markdown(f"""
             <div class='card success-card'>
                 <p>✅ Using LLaVA-v1.5-7b model for image analysis.</p>
-                <p>Model: {model.model_name}</p>
                 <p>Device: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU"}</p>
             </div>
             """, unsafe_allow_html=True)

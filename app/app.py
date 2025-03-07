@@ -69,6 +69,16 @@ def display_metrics():
     """Display metrics from both analysis modules if available."""
     st.subheader("📊 Store Metrics Overview")
     
+    # Add CSS for centering metric values
+    st.markdown("""
+    <style>
+    [data-testid="stMetricValue"] {
+        text-align: center;
+        justify-content: center;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
     # Create columns for metrics
     col1, col2, col3, col4 = st.columns(4)
     
@@ -81,9 +91,9 @@ def display_metrics():
             st.metric("👩 Women", results["women_count"])
     else:
         with col1:
-            st.metric("👨 Men", "N/A")
+            st.metric("👨 Men", "-")
         with col2:
-            st.metric("👩 Women", "N/A")
+            st.metric("👩 Women", "-")
     
     # Queue Management Metrics
     if st.session_state.queue_management_results:
@@ -94,9 +104,9 @@ def display_metrics():
             st.metric("✅ Open Counters", results["open_counters"])
     else:
         with col3:
-            st.metric("🔢 Total Counters", "N/A")
+            st.metric("🔢 Total Counters", "-")
         with col4:
-            st.metric("✅ Open Counters", "N/A")
+            st.metric("✅ Open Counters", "-")
 
 def display_insights():
     """Display insights from both analysis modules if available."""

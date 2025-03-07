@@ -69,12 +69,24 @@ def display_metrics():
     """Display metrics from both analysis modules if available."""
     st.subheader("📊 Store Metrics Overview")
     
-    # Add CSS for centering metric values
+    # Add CSS for centering metric values and labels
     st.markdown("""
     <style>
     [data-testid="stMetricValue"] {
         text-align: center;
         justify-content: center;
+    }
+    [data-testid="stMetricLabel"] {
+        text-align: center;
+        justify-content: center;
+    }
+    div[data-testid="stMetricValue"] > div {
+        width: 100%;
+        text-align: center;
+    }
+    div[data-testid="stMetricLabel"] > div {
+        width: 100%;
+        text-align: center;
     }
     </style>
     """, unsafe_allow_html=True)

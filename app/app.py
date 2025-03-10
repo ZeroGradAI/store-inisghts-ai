@@ -50,7 +50,7 @@ except Exception as e:
 
 # Import the model inference
 from model.inference import get_model as get_llava_model
-from model.inference_llama import get_model as get_llama_model
+from model.inference_llama import get_api_model
 
 # Helper function to check GPU availability
 def check_gpu_availability():
@@ -68,11 +68,11 @@ def check_gpu_availability():
             logger.info(f"Current CUDA device: {gpu_info['current_device']}")
             logger.info(f"CUDA device name: {gpu_info['device_name']}")
         else:
-            logger.info("CUDA is not available. Will use Llama API only.")
+            logger.info("CUDA is not available. Will use API-based models only.")
     except Exception as e:
         logger.warning(f"Error checking GPU availability: {str(e)}")
         has_gpu = False
-        logger.info("CUDA availability check failed. Will use Llama API only.")
+        logger.info("CUDA availability check failed. Will use API-based models only.")
     
     return has_gpu, gpu_info
 
@@ -107,7 +107,7 @@ st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
 # Create a session state variable to keep track of the selected model
 if 'selected_model' not in st.session_state:
-    st.session_state.selected_model = 'llama'  # Default to Llama
+    st.session_state.selected_model = config.DEFAULT_MODEL  # Default to the model specified in config
     
 if 'model' not in st.session_state:
     st.session_state.model = None
@@ -242,8 +242,12 @@ def main():
     # Load the selected model if it hasn't been loaded yet
     if st.session_state.model is None:
         with st.spinner(f"Loading {st.session_state.selected_model.upper()} model..."):
-            if st.session_state.selected_model == 'llama':
-                st.session_state.model = get_llama_model()
+            if st.session_state.selected_model == 'phi':
+                st.session_state.model = get_api_model(model_type='phi')
+            elif st.session_state.selected_model == 'llama':
+                st.session_state.model = get_api_model(model_type='llama')
+            elif st.session_state.selected_model == 'llama-90b':
+                st.session_state.model = get_api_model(model_type='llama-90b')
             else:  # llava
                 st.session_state.model = get_llava_model(use_small_model=use_small_model)
             
@@ -284,7 +288,12 @@ def main():
             """, unsafe_allow_html=True)
         elif st.session_state.model is not None:
             status_color = "#28a745" if not st.session_state.model.is_mock else "#dc3545"
-            model_name = "Llama-3.2-90B-Vision" if st.session_state.selected_model == "llama" else "LLaVA-1.5-7B"
+            
+            # Get model name based on selected model
+            if hasattr(st.session_state.model, 'get_model_name'):
+                model_name = st.session_state.model.get_model_name()
+            else:
+                model_name = "LLaVA-1.5-7B"
             
             st.markdown(f"""
             <div style="background-color: {status_color}; color: white; padding: 10px; border-radius: 5px; text-align: center; margin-bottom: 10px;">
@@ -292,16 +301,24 @@ def main():
             </div>
             """, unsafe_allow_html=True)
             
-            if st.session_state.selected_model == "llama":
-                st.markdown("""
+            # Provide info based on model type
+            if st.session_state.selected_model in ['phi', 'llama', 'llama-90b']:
+                if st.session_state.selected_model == 'phi':
+                    model_description = "Microsoft Phi-4"
+                elif st.session_state.selected_model == 'llama':
+                    model_description = "Llama-3.2-11B-Vision"
+                else:  # llama-90b
+                    model_description = "Llama-3.2-90B-Vision"
+                    
+                st.markdown(f"""
                 <div style="margin-top: 10px; font-size: 0.8em;">
-                Using DeepInfra's Llama 3.2 API for vision analysis - faster but might be less accurate.
+                Using DeepInfra's {model_description} API for vision analysis - faster and doesn't require GPU.
                 </div>
                 """, unsafe_allow_html=True)
             else:
                 st.markdown("""
                 <div style="margin-top: 10px; font-size: 0.8em;">
-                Using local LLaVA model for vision analysis - may be slower but potentially more accurate.
+                Using local LLaVA model for vision analysis - may be slower but runs locally.
                 </div>
                 """, unsafe_allow_html=True)
         else:
@@ -310,23 +327,55 @@ def main():
         # Add model selection at the top of the sidebar
         st.markdown("### Model Selection")
         
-        # Only show model selection if GPU is available, otherwise default to Llama
+        # Define available models based on GPU availability
         if has_gpu:
-            model_options = ['llama', 'llava']
-            model_selection = st.selectbox(
-                "Select Vision Model",
-                options=model_options,
-                index=0,  # Default to Llama
-                help="Llama is faster and uses less memory. Llava may provide more accurate results but requires a GPU."
-            )
-            
-            if model_selection != st.session_state.selected_model:
-                st.session_state.selected_model = model_selection
-                st.session_state.model = None  # Reset the model so it will be reloaded
-                st.rerun()  # Rerun the app to load the new model
+            model_options = ['llama', 'llama-90b', 'phi', 'llava']
+            model_descriptions = {
+                'llama': 'meta-llama/Llama-3.2-11B-Vision-Instruct (Default)',
+                'llama-90b': 'meta-llama/Llama-3.2-90B-Vision-Instruct',
+                'phi': 'microsoft/Phi-4-multimodal-instruct',
+                'llava': 'LLaVA-1.5 (Local - Requires GPU)'
+            }
         else:
-            st.info("GPU not available. Using Llama model.")
-            st.session_state.selected_model = 'llama'
+            model_options = ['llama', 'llama-90b', 'phi']
+            model_descriptions = {
+                'llama': 'meta-llama/Llama-3.2-11B-Vision-Instruct (Default)',
+                'llama-90b': 'meta-llama/Llama-3.2-90B-Vision-Instruct',
+                'phi': 'microsoft/Phi-4-multimodal-instruct'
+            }
+            
+        # Format the options with descriptions
+        formatted_options = [f"{model_descriptions[opt]}" for opt in model_options]
+        
+        # Find the index of the current model in the options
+        try:
+            current_index = model_options.index(st.session_state.selected_model)
+        except ValueError:
+            current_index = 0  # Default to first option if not found
+        
+        # Create the selectbox
+        selection = st.selectbox(
+            "Select Vision Model",
+            options=formatted_options,
+            index=current_index,
+            help="Choose which vision model to use for image analysis"
+        )
+        
+        # Extract the selected model type from the formatted selection
+        for model_type, description in model_descriptions.items():
+            if description in selection:
+                selected_model = model_type
+                break
+        
+        # If model changed, update session state and reload
+        if selected_model != st.session_state.selected_model:
+            st.session_state.selected_model = selected_model
+            st.session_state.model = None  # Reset the model so it will be reloaded
+            st.rerun()  # Rerun the app to load the new model
+        
+        # If GPU is not available, show info message
+        if not has_gpu and 'llava' in model_descriptions:
+            st.warning("LLaVA model requires GPU which is not available on this system.")
         
         st.markdown("---")
         

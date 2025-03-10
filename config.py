@@ -26,15 +26,21 @@ if not DEEPINFRA_API_KEY:
     # Don't set a default here for security reasons
 
 # Model Configuration
-VISION_MODEL_ID = os.getenv('VISION_MODEL_ID', "meta-llama/Llama-3.2-90B-Vision-Instruct")
+LLAMA_VISION_MODEL_ID = os.getenv('LLAMA_VISION_MODEL_ID', "meta-llama/Llama-3.2-11B-Vision-Instruct")
+LLAMA_VISION_MODEL_ID_90B = os.getenv('LLAMA_VISION_MODEL_ID_90B', "meta-llama/Llama-3.2-90B-Vision-Instruct")
+PHI_VISION_MODEL_ID = os.getenv('PHI_VISION_MODEL_ID', "microsoft/Phi-4-multimodal-instruct")
 TEXT_MODEL_ID = os.getenv('TEXT_MODEL_ID', "meta-llama/Meta-Llama-3.1-8B-Instruct")
-MAX_TOKENS = int(os.getenv('MAX_TOKENS', 32000))
+
+# Set default vision model to use (phi or llama)
+VISION_MODEL_ID = os.getenv('VISION_MODEL_ID', LLAMA_VISION_MODEL_ID)
+
+MAX_TOKENS = int(os.getenv('MAX_TOKENS', 10000))
 
 # DeepInfra API URL
 DEEPINFRA_API_URL = os.getenv('DEEPINFRA_API_URL', "https://api.deepinfra.com/v1/openai")
 
 # Application Settings
-DEFAULT_MODEL = os.getenv('DEFAULT_MODEL', 'llama')  # 'llama' or 'llava'
+DEFAULT_MODEL = os.getenv('DEFAULT_MODEL', 'llama')  # 'phi', 'llama', or 'llava'
 USE_SMALL_MODEL = os.getenv('USE_SMALL_MODEL', 'false').lower() == 'true'
 
 # Deployment Settings

@@ -19,13 +19,34 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-class LlamaModelInference:
-    """Class for model inference operations using the Llama-3.2-Vision model via DeepInfra API."""
+class APIModelInference:
+    """Class for model inference operations using vision models via DeepInfra API."""
     
-    def __init__(self):
-        """Initialize the model inference class."""
+    def __init__(self, model_type='phi'):
+        """
+        Initialize the model inference class.
+        
+        Args:
+            model_type: Type of vision model to use ('phi', 'llama', or 'llama-90b')
+        """
         self.is_mock = False
-        self.vision_model_id = config.VISION_MODEL_ID
+        self.model_type = model_type.lower()
+        
+        # Set the vision model based on the model_type
+        if self.model_type == 'phi':
+            self.vision_model_id = config.PHI_VISION_MODEL_ID
+            logger.info(f"Using Microsoft Phi-4 model: {self.vision_model_id}")
+        elif self.model_type == 'llama':
+            self.vision_model_id = config.LLAMA_VISION_MODEL_ID
+            logger.info(f"Using Llama 11B model: {self.vision_model_id}")
+        elif self.model_type == 'llama-90b':
+            self.vision_model_id = config.LLAMA_VISION_MODEL_ID_90B
+            logger.info(f"Using Llama 90B model: {self.vision_model_id}")
+        else:
+            logger.warning(f"Unknown model type: {model_type}. Defaulting to Llama 11B model.")
+            self.vision_model_id = config.LLAMA_VISION_MODEL_ID
+            self.model_type = 'llama'
+            
         self.text_model_id = config.TEXT_MODEL_ID
         self.max_tokens = config.MAX_TOKENS
         
@@ -205,11 +226,11 @@ class LlamaModelInference:
             # STEP 1: Use vision model to analyze the image
             vision_prompt = """
 
-                            1. Estimate the approximate number of men and women customers shopping in the image.
+                            1. How many men and women customers do you see in the image.
                             2. Identify what products or store sections these customers appear to be browsing or interested in
                             3. Provide general insights about customer shopping patterns that might be useful for retail management
 
-                            Please provide a detailed but objective description.
+                            Please provide a short and concise response for each question.
                             """
             
             # Generate raw text analysis from vision model
@@ -274,17 +295,13 @@ Return ONLY the JSON object, nothing else. If the analysis doesn't provide certa
         
         try:
             # STEP 1: Use vision model to analyze the image
-            vision_prompt = """This is a retail business analytics task focused on queue management. Please analyze this retail store image to help with checkout efficiency assessment for business operations.
+            vision_prompt = """
+            1. How many open and closed counters do you see in the image? 
+            2. How many customers are waiting in line in these counters?
+            3. Suggest any recommendations to improve customer flow and reduce wait times
 
-For this business analytics purpose only:
-1. Count the approximate number of checkout counters that appear to be open (staffed/operational)
-2. Count the approximate number of checkout counters that appear to be closed (unstaffed/non-operational)
-3. Estimate the total number of customers waiting in checkout lines
-4. Assess the efficiency of the current queue management setup
-5. Suggest any business recommendations to improve customer flow and reduce wait times
-
-This analysis will help retail management optimize staffing and checkout operations. Please provide a detailed but objective description focused on business metrics and operational efficiency.
-"""
+            Please provide a short and concise response for each question.
+            """
             
             # Generate raw text analysis from vision model
             raw_response = self._generate_vision_response(image, vision_prompt)
@@ -302,7 +319,7 @@ Please return a JSON object with the following keys:
 - closedcounters: number of closed/unstaffed checkout counters (use 0 if none or unclear)
 - totalcounters: total number of checkout counters (sum of open and closed)
 - customersinqueue: estimated number of customers waiting in line (use 0 if none or unclear)
-- waittime: approximate wait time estimate (e.g., "3-5 minutes", "10+ minutes")
+- waittime: approximate wait time estimate based on the number of customers in line(e.g., "3-5 minutes", "10+ minutes")
 - queueefficiency: assessment of overall queue management efficiency (text description or rating)
 - overcrowded: boolean true/false indicating if the checkout area appears overcrowded
 - recommendations: list of business suggestions to improve checkout efficiency
@@ -833,6 +850,26 @@ Return ONLY the JSON object, nothing else. If the analysis doesn't provide certa
             'is_mock': True
         }
 
-def get_model():
-    """Get an instance of the LlamaModelInference class."""
-    return LlamaModelInference() 
+    def get_model_name(self):
+        """Return a human-readable name for the current model."""
+        if self.model_type == 'phi':
+            return "Microsoft Phi-4 Multimodal"
+        elif self.model_type == 'llama':
+            return "Llama-3.2-11B-Vision"
+        elif self.model_type == 'llama-90b':
+            return "Llama-3.2-90B-Vision"
+        else:
+            return "Unknown Model"
+
+# Rename the get_model function to be more descriptive of what it's getting
+def get_api_model(model_type=config.DEFAULT_MODEL):
+    """
+    Get an instance of the APIModelInference class.
+    
+    Args:
+        model_type: Type of vision model to use ('phi' or 'llama')
+        
+    Returns:
+        An instance of the APIModelInference class
+    """
+    return APIModelInference(model_type=model_type) 

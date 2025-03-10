@@ -17,18 +17,22 @@
 - ✅ Added deployment configurations for Render and Vercel
 - ✅ Enhanced error handling and fallback mechanisms
 - ✅ Improved text extraction from raw model responses
+- ✅ Integrated Microsoft Phi-4-multimodal-instruct model as more reliable alternative
+- ✅ Implemented 3-way model selection (Phi-4, Llama-3.2, LLaVA) with improved UI
+- ✅ Set Microsoft Phi-4 as the default model for better reliability and cost efficiency
+- ✅ Updated all documentation with new model options and configuration parameters
 
 ## In Progress
 
 - 🔄 Testing with different types of store images
-- 🔄 Fine-tuning prompt templates for optimal results with both models
+- 🔄 Fine-tuning prompt templates for optimal results with all three models
 - 🔄 Performance optimization for faster analysis
 - 🔄 Implementing more robust text-to-JSON extraction logic
-- 🔄 Cloud deployment testing
+- 🔄 Cloud deployment testing with the new model configuration
+- 🔄 Comparative analysis of model performance (Phi-4 vs Llama vs LLaVA)
 
 ## Pending
 
-- ⏳ Comparison metrics between Llama and Llava model performance
 - ⏳ Implementation of caching mechanism for faster repeated analysis
 - ⏳ Enhanced error recovery for intermittent API failures
 - ⏳ Addition of more sample images for demonstration purposes

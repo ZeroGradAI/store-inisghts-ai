@@ -7,10 +7,11 @@ This guide explains how to deploy Store Insights AI to cloud platforms including
 The following environment variables need to be set for proper functioning:
 
 - `DEEPINFRA_API_KEY`: Your DeepInfra API key (required)
-- `VISION_MODEL_ID`: Vision model ID (default: "meta-llama/Llama-3.2-90B-Vision-Instruct")
-- `TEXT_MODEL_ID`: Text model ID (default: "meta-llama/Meta-Llama-3.1-8B-Instruct")
+- `PHI_VISION_MODEL_ID`: Microsoft Phi-4 model ID (default: "microsoft/Phi-4-multimodal-instruct")
+- `LLAMA_VISION_MODEL_ID`: Llama vision model ID (default: "meta-llama/Llama-3.2-90B-Vision-Instruct")
+- `TEXT_MODEL_ID`: Text model ID for parsing (default: "meta-llama/Meta-Llama-3.1-8B-Instruct")
 - `MAX_TOKENS`: Maximum tokens for model response (default: 32000)
-- `DEFAULT_MODEL`: Default model to use, 'llama' or 'llava' (default: 'llama')
+- `DEFAULT_MODEL`: Default model to use, 'phi', 'llama', or 'llava' (default: 'phi')
 - `USE_SMALL_MODEL`: Whether to use a smaller model, 'true' or 'false' (default: 'false')
 
 ## Deploying to Render
@@ -36,6 +37,7 @@ The following environment variables need to be set for proper functioning:
 3. **Set Environment Variables**
    - Add the following environment variables under the "Environment" section:
      - `DEEPINFRA_API_KEY`: Your DeepInfra API key
+     - `DEFAULT_MODEL`: Set to 'phi' to use the Microsoft Phi-4 model (recommended)
      - Any other variables you want to customize
 
 4. **Deploy**
@@ -64,14 +66,14 @@ The following environment variables need to be set for proper functioning:
    {
      "builds": [
        {
-         "src": "app/app.py",
+         "src": "index.py",
          "use": "@vercel/python"
        }
      ],
      "routes": [
        {
          "src": "/(.*)",
-         "dest": "app/app.py"
+         "dest": "index.py"
        }
      ],
      "env": {
@@ -106,6 +108,7 @@ The following environment variables need to be set for proper functioning:
    
    - Set environment variables in the Vercel dashboard:
      - `DEEPINFRA_API_KEY`: Your DeepInfra API key
+     - `DEFAULT_MODEL`: Set to 'phi' to use the Microsoft Phi-4 model (recommended)
      - Any other variables you want to customize
 
 5. **Deploy**
@@ -114,6 +117,25 @@ The following environment variables need to be set for proper functioning:
 
 6. **Access Your App**
    - Once deployed, you can access your app at the URL provided by Vercel
+
+## Model Selection Considerations
+
+When deploying, consider which model is best for your use case:
+
+1. **Microsoft Phi-4 (Default)**: Recommended for most deployments due to its:
+   - Reliability (fewer safety filter rejections)
+   - Cost-effectiveness (less expensive API calls)
+   - No GPU requirements (works on any hosting tier)
+
+2. **Llama-3.2-90B**: Alternative API option that:
+   - May provide different quality results for some images
+   - Has higher API usage costs
+   - May occasionally trigger safety filters for store images
+
+3. **LLaVA-1.5-7B**: Only suitable if your hosting provides GPU access:
+   - Requires a GPU with 8GB+ VRAM
+   - More costly to host due to GPU requirements
+   - Provides local inference without API costs
 
 ## Using a Custom Domain
 

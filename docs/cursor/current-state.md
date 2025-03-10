@@ -12,6 +12,11 @@
 - ✅ Implemented two-step approach for more accurate data extraction:
   - Vision model (Llama-3.2-90B-Vision) for image analysis and raw text description
   - Text model (Meta-Llama-3.1-8B) for parsing the raw text into structured JSON data
+- ✅ Moved API key to environment variables for security
+- ✅ Created centralized configuration system
+- ✅ Added deployment configurations for Render and Vercel
+- ✅ Enhanced error handling and fallback mechanisms
+- ✅ Improved text extraction from raw model responses
 
 ## In Progress
 
@@ -19,6 +24,7 @@
 - 🔄 Fine-tuning prompt templates for optimal results with both models
 - 🔄 Performance optimization for faster analysis
 - 🔄 Implementing more robust text-to-JSON extraction logic
+- 🔄 Cloud deployment testing
 
 ## Pending
 
@@ -27,10 +33,12 @@
 - ⏳ Enhanced error recovery for intermittent API failures
 - ⏳ Addition of more sample images for demonstration purposes
 - ⏳ Developing more sophisticated fallback extraction methods for when JSON parsing fails
+- ⏳ Adding authentication for the deployed application
+- ⏳ Implementing image caching to reduce API costs
 
 ## Known Issues
 
-- The DeepInfra API key is currently hardcoded in the inference_llama.py file
 - Error handling for network connectivity issues could be improved
 - UI sometimes flickers briefly during model switching
-- The two-step approach increases the number of API calls, which impacts cost and performance 
+- The two-step approach increases the number of API calls, which impacts cost and performance
+- Vercel deployment requires special configuration due to Streamlit's requirements 

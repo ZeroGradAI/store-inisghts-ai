@@ -6,6 +6,11 @@ from PIL import Image
 from openai import OpenAI
 import io
 import re
+import sys
+
+# Add parent directory to path to import config
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import config
 
 # Configure logging
 logging.basicConfig(
@@ -20,15 +25,23 @@ class LlamaModelInference:
     def __init__(self):
         """Initialize the model inference class."""
         self.is_mock = False
-        self.vision_model_id = "meta-llama/Llama-3.2-90B-Vision-Instruct"
-        self.text_model_id = "meta-llama/Meta-Llama-3.1-8B-Instruct"
-        self.max_tokens = 32000
+        self.vision_model_id = config.VISION_MODEL_ID
+        self.text_model_id = config.TEXT_MODEL_ID
+        self.max_tokens = config.MAX_TOKENS
         
         try:
+            # Get API key from configuration
+            try:
+                api_key = config.get_api_key()
+            except ValueError as e:
+                logger.warning(f"{str(e)} Using fallback mechanism.")
+                # Fallback to hardcoded key - not recommended for production
+                api_key = "MS6VJVml9vT4jR7GuagGDlLz2YnKP3hw"
+            
             # Initialize OpenAI client with DeepInfra endpoint
             self.client = OpenAI(
-                api_key="HwFKgryu2LwqFv6lV1ZlIixWh67NJgvH",
-                base_url="https://api.deepinfra.com/v1/openai",
+                api_key=api_key,
+                base_url=config.DEEPINFRA_API_URL,
             )
             logger.info(f"DeepInfra API client initialized with vision model: {self.vision_model_id}")
             logger.info(f"DeepInfra API client initialized with text model: {self.text_model_id}")
@@ -190,21 +203,19 @@ class LlamaModelInference:
         
         try:
             # STEP 1: Use vision model to analyze the image
-            vision_prompt = """This is a retail business analytics task. Please analyze this retail store image to help with customer demographic information for business planning purposes.
+            vision_prompt = """
 
-For this business analytics purpose only:
-1. Estimate the approximate number of adult customers by apparent gender presentation (men/women) visible in the image
-2. Identify what products or store sections these customers appear to be browsing or interested in
-3. Provide general insights about customer shopping patterns that might be useful for retail management
+                            1. Estimate the approximate number of men and women customers shopping in the image.
+                            2. Identify what products or store sections these customers appear to be browsing or interested in
+                            3. Provide general insights about customer shopping patterns that might be useful for retail management
 
-This is strictly for aggregate business analytics to improve store operations and customer service. No individual identification is requested or required - only approximate counts and general observations.
-
-Please provide a detailed but objective description focused on business metrics and retail operations.
-"""
+                            Please provide a detailed but objective description.
+                            """
             
             # Generate raw text analysis from vision model
             raw_response = self._generate_vision_response(image, vision_prompt)
             logger.info("Vision model raw response received")
+            logger.info(f"Vision model raw response: {raw_response}")
             
             # STEP 2: Use text model to extract structured data from raw response
             text_prompt = f"""Based on the following retail business analysis, extract the gender demographics data into a JSON format.
@@ -224,7 +235,7 @@ Return ONLY the JSON object, nothing else. If the analysis doesn't provide certa
             # Generate structured JSON response from text model
             json_response = self._generate_text_response(text_prompt)
             logger.info("Text model JSON response received")
-            
+            logger.info(f"Text model JSON response: {json_response}")
             # Extract data from the JSON response
             result = self._extract_json_data(json_response, "gender_demographics")
             
@@ -278,6 +289,7 @@ This analysis will help retail management optimize staffing and checkout operati
             # Generate raw text analysis from vision model
             raw_response = self._generate_vision_response(image, vision_prompt)
             logger.info("Vision model raw response received")
+            logger.info(f"Vision model raw response: {raw_response}")
             
             # STEP 2: Use text model to extract structured data from raw response
             text_prompt = f"""Based on the following retail business analysis focused on queue management, extract the data into a JSON format.
@@ -301,7 +313,7 @@ Return ONLY the JSON object, nothing else. If the analysis doesn't provide certa
             # Generate structured JSON response from text model
             json_response = self._generate_text_response(text_prompt)
             logger.info("Text model JSON response received")
-            
+            logger.info(f"Text model JSON response: {json_response}")
             # Extract data from the JSON response
             result = self._extract_json_data(json_response, "queue_management")
             

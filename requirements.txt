@@ -9,3 +9,5 @@ pillow
 numpy
 tqdm
 plotly
+python-dotenv
+openai

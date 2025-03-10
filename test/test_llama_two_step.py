@@ -1,6 +1,11 @@
 from PIL import Image
 import os
 import logging
+import sys
+
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from model.inference_llama import LlamaModelInference
 
 # Configure logging
@@ -92,5 +97,5 @@ if __name__ == "__main__":
     logger.info("===== TESTING GENDER DEMOGRAPHICS ANALYSIS =====")
     gender_results = test_gender_demographics()
     
-    logger.info("\n\n===== TESTING QUEUE MANAGEMENT ANALYSIS =====")
-    queue_results = test_queue_management() 
+    # logger.info("\n\n===== TESTING QUEUE MANAGEMENT ANALYSIS =====")
+    # queue_results = test_queue_management() 

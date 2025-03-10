@@ -17,6 +17,25 @@ An intelligent assistant for retail store management that uses vision models to 
 - Python 3.8 or later
 - [Conda](https://docs.conda.io/en/latest/) (recommended for environment management)
 - GPU with CUDA support (optional, for LLaVA model)
+- DeepInfra API key (for Llama model)
+
+### Environment Variables
+
+Create a `.env.local` file in the root directory with the following variables:
+
+```
+DEEPINFRA_API_KEY=your_api_key_here
+```
+
+You can also customize other settings:
+
+```
+VISION_MODEL_ID=meta-llama/Llama-3.2-90B-Vision-Instruct
+TEXT_MODEL_ID=meta-llama/Meta-Llama-3.1-8B-Instruct
+MAX_TOKENS=32000
+DEFAULT_MODEL=llama
+USE_SMALL_MODEL=false
+```
 
 ### Installation
 
@@ -59,11 +78,21 @@ An intelligent assistant for retail store management that uses vision models to 
 - `model/inference.py`: LLaVA model inference
 - `model/inference_llama.py`: Llama model inference via DeepInfra API
 - `samples/`: Sample images for testing
+- `config.py`: Centralized configuration 
+
+## Deployment
+
+This application can be deployed to cloud platforms like Render and Vercel. For detailed deployment instructions, see [DEPLOYMENT.md](DEPLOYMENT.md).
+
+### Quick Deployment Links
+
+- Deploy to Render: [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy)
 
 ## Notes
 
 - If your system doesn't have a GPU, the application will automatically use the Llama model via DeepInfra API.
 - For the best experience with the LLaVA model, a GPU with at least 8GB of VRAM is recommended.
+- When deploying, make sure to set the DEEPINFRA_API_KEY environment variable.
 
 ## License
 

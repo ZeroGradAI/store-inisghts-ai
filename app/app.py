@@ -12,16 +12,19 @@ import logging
 import argparse
 import torch
 
+# Add the app directory to the path to import modules
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Import configuration
+import config
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger("StoreInsightsApp")
-
-# Add the app directory to the path to import modules
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Fix for torch watcher error in Streamlit
 try:
@@ -76,10 +79,11 @@ def check_gpu_availability():
 # Check if GPU is available for Llava
 has_gpu, gpu_info = check_gpu_availability()
 
-# Check if we should use a smaller model
+# Check if we should use a smaller model - use configuration setting if available
 parser = argparse.ArgumentParser(description='Store Insights AI')
 parser.add_argument('--small-model', action='store_true', help='Use a smaller model to avoid memory issues')
 args, unknown = parser.parse_known_args()
+use_small_model = args.small_model or config.USE_SMALL_MODEL
 
 # Set page configuration - must be the first Streamlit command
 st.set_page_config(
@@ -241,7 +245,7 @@ def main():
             if st.session_state.selected_model == 'llama':
                 st.session_state.model = get_llama_model()
             else:  # llava
-                st.session_state.model = get_llava_model(use_small_model=args.small_model)
+                st.session_state.model = get_llava_model(use_small_model=use_small_model)
             
             # Log model info after it's loaded
             logger.info(f"Model loaded: {st.session_state.selected_model}")

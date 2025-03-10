@@ -6,11 +6,11 @@ import numpy as np
 from PIL import Image
 import plotly.express as px
 import plotly.graph_objects as go
-import torch
 import sys
 import time
 import logging
 import argparse
+import torch
 
 # Configure logging
 logging.basicConfig(
@@ -23,8 +23,58 @@ logger = logging.getLogger("StoreInsightsApp")
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Fix for torch watcher error in Streamlit
+try:
+    # Disable Streamlit's file watcher for torch to avoid __path__._path errors
+    import streamlit.watcher.path_watcher as pw
+    
+    orig_is_watchable = pw.is_watchable
+    def patched_is_watchable(path_string):
+        if 'torch' in path_string:
+            return False
+        return orig_is_watchable(path_string)
+    
+    pw.is_watchable = patched_is_watchable
+    
+    # Now import torch safely
+    import torch
+    has_gpu = torch.cuda.is_available()
+    logger.info(f"CUDA available: {has_gpu}")
+except Exception as e:
+    logger.warning(f"Error handling torch imports: {str(e)}")
+    has_gpu = False
+    logger.info("CUDA not available (error during import). Will use Llama API only.")
+
 # Import the model inference
-from model.inference import get_model
+from model.inference import get_model as get_llava_model
+from model.inference_llama import get_model as get_llama_model
+
+# Helper function to check GPU availability
+def check_gpu_availability():
+    """Check if GPU is available and return system GPU info."""
+    gpu_info = {}
+    
+    try:
+        has_gpu = torch.cuda.is_available()
+        
+        if has_gpu:
+            gpu_info['device_count'] = torch.cuda.device_count()
+            gpu_info['current_device'] = torch.cuda.current_device()
+            gpu_info['device_name'] = torch.cuda.get_device_name(0)
+            logger.info(f"CUDA is available. Detected {gpu_info['device_count']} GPU(s).")
+            logger.info(f"Current CUDA device: {gpu_info['current_device']}")
+            logger.info(f"CUDA device name: {gpu_info['device_name']}")
+        else:
+            logger.info("CUDA is not available. Will use Llama API only.")
+    except Exception as e:
+        logger.warning(f"Error checking GPU availability: {str(e)}")
+        has_gpu = False
+        logger.info("CUDA availability check failed. Will use Llama API only.")
+    
+    return has_gpu, gpu_info
+
+# Check if GPU is available for Llava
+has_gpu, gpu_info = check_gpu_availability()
 
 # Check if we should use a smaller model
 parser = argparse.ArgumentParser(description='Store Insights AI')
@@ -51,8 +101,12 @@ header {visibility: hidden;}
 """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
-# Get the model instance
-model = get_model(use_small_model=args.small_model)
+# Create a session state variable to keep track of the selected model
+if 'selected_model' not in st.session_state:
+    st.session_state.selected_model = 'llama'  # Default to Llama
+    
+if 'model' not in st.session_state:
+    st.session_state.model = None
 
 # Initialize session state for storing analysis results
 if "gender_demographics_results" not in st.session_state:
@@ -181,6 +235,18 @@ def show_dashboard():
 
 def main():
     """Main function to run the Streamlit app."""
+    # Load the selected model if it hasn't been loaded yet
+    if st.session_state.model is None:
+        with st.spinner(f"Loading {st.session_state.selected_model.upper()} model..."):
+            if st.session_state.selected_model == 'llama':
+                st.session_state.model = get_llama_model()
+            else:  # llava
+                st.session_state.model = get_llava_model(use_small_model=args.small_model)
+            
+            # Log model info after it's loaded
+            logger.info(f"Model loaded: {st.session_state.selected_model}")
+            logger.info(f"Using mock data: {st.session_state.model.is_mock}")
+    
     # Clean sidebar with styled navigation buttons
     with st.sidebar:
         # Add custom CSS for styling the buttons
@@ -198,38 +264,65 @@ def main():
             font-weight: 500;
         }
         div.stButton > button:hover {
-            background-color: #3E4154;
-            color: white;
-        }
-        .warning-box {
-            background-color: #5E5C2A;
-            border-radius: 10px;
-            padding: 10px;
-            margin-bottom: 20px;
+            background-color: #4A4D5E;
         }
         </style>
         """, unsafe_allow_html=True)
         
-        # App title
-        st.markdown("<h2 style='text-align: center; color: white;'>Store Insights AI</h2>", unsafe_allow_html=True)
-        
         # Model status indicator
         st.markdown("### Model Status")
-        if model.is_mock:
+        if st.session_state.model is not None and st.session_state.model.is_mock:
             st.markdown("<div class='model-status model-status-mock'>Using Simulated Data</div>", unsafe_allow_html=True)
             st.markdown("""
-            <div class='card warning-card'>
-                <p>⚠️ The AI model is not available or CUDA is not detected. Using simulated data for demonstration purposes.</p>
+            <div style="margin-top: 10px; font-size: 0.8em;">
+            The model is using simulated data because no GPU is available or an error occurred during model loading.
             </div>
             """, unsafe_allow_html=True)
-        else:
-            st.markdown("<div class='model-status model-status-real'>Using Real AI Model</div>", unsafe_allow_html=True)
+        elif st.session_state.model is not None:
+            status_color = "#28a745" if not st.session_state.model.is_mock else "#dc3545"
+            model_name = "Llama-3.2-90B-Vision" if st.session_state.selected_model == "llama" else "LLaVA-1.5-7B"
+            
             st.markdown(f"""
-            <div class='card success-card'>
-                <p>✅ Using LLaVA-v1.5-7b model for image analysis.</p>
-                <p>Device: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU"}</p>
+            <div style="background-color: {status_color}; color: white; padding: 10px; border-radius: 5px; text-align: center; margin-bottom: 10px;">
+                <strong>Model Active:</strong> {model_name}
             </div>
             """, unsafe_allow_html=True)
+            
+            if st.session_state.selected_model == "llama":
+                st.markdown("""
+                <div style="margin-top: 10px; font-size: 0.8em;">
+                Using DeepInfra's Llama 3.2 API for vision analysis - faster but might be less accurate.
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown("""
+                <div style="margin-top: 10px; font-size: 0.8em;">
+                Using local LLaVA model for vision analysis - may be slower but potentially more accurate.
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.info("Model loading in progress...")
+        
+        # Add model selection at the top of the sidebar
+        st.markdown("### Model Selection")
+        
+        # Only show model selection if GPU is available, otherwise default to Llama
+        if has_gpu:
+            model_options = ['llama', 'llava']
+            model_selection = st.selectbox(
+                "Select Vision Model",
+                options=model_options,
+                index=0,  # Default to Llama
+                help="Llama is faster and uses less memory. Llava may provide more accurate results but requires a GPU."
+            )
+            
+            if model_selection != st.session_state.selected_model:
+                st.session_state.selected_model = model_selection
+                st.session_state.model = None  # Reset the model so it will be reloaded
+                st.rerun()  # Rerun the app to load the new model
+        else:
+            st.info("GPU not available. Using Llama model.")
+            st.session_state.selected_model = 'llama'
         
         st.markdown("---")
         
@@ -260,10 +353,8 @@ def main():
 
 if __name__ == "__main__":
     logger.info("Starting Store Insights AI application")
-    logger.info(f"CUDA available: {torch.cuda.is_available()}")
     if torch.cuda.is_available():
         logger.info(f"CUDA device: {torch.cuda.get_device_name(0)}")
-    logger.info(f"Using mock data: {model.is_mock}")
     
     main() 
 

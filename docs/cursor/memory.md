@@ -439,3 +439,55 @@ ImportError: cannot import name 'LlavaLlamaForCausalLM' from 'llava.model'
 3. Use multiple layers of fallback mechanisms to ensure robustness
 4. When working with machine learning models, always have a way to run inference that doesn't depend on specific package structures
 5. Document all workarounds thoroughly for future reference 
+
+# Project Learnings
+
+## Model Pipeline Design
+
+- **Separation of Vision and Text Processing**: We discovered that using a two-step approach (vision model followed by text model) produces more accurate results than asking a vision model to directly produce structured data. The vision model is better at analyzing the image content, while a dedicated text model is better at extracting structured data from that analysis.
+
+- **API Response Structure**: When a vision model produced JSON responses directly, we observed instances where the model correctly identified elements in its raw text description but produced incorrect numbers in the JSON output. By separating these concerns, we get better results.
+
+- **Robust Data Extraction**: Store both the raw vision model response and the structured JSON output in the result, allowing the application to fall back to text extraction methods if JSON parsing fails.
+
+## Key Naming Consistency
+
+- **Consistent Field Names Across Services**: When implementing alternative models or APIs that provide similar functionality, it's crucial to maintain consistent field/key names throughout the application. We encountered errors when the Llama model implementation used different key names (male_count/female_count) than what the application expected (men_count/women_count or mencount/womencount).
+
+- **API Response Mapping**: Always implement robust key mapping that can handle variations in API responses. Our solution was to check for multiple possible key names (e.g., `data.get('mencount', data.get('men_count', data.get('male_count', 0)))`) to ensure flexibility.
+
+- **Prompt Consistency**: Keep prompt formats consistent across different model implementations to ensure similar response structures. We updated the Llama model prompts to exactly match the format used in the original implementation.
+
+## Streamlit and Session State
+
+- **Session State Order**: When using Streamlit's session state, it's critical to ensure that values are initialized before they're accessed. We encountered errors when trying to access `st.session_state.model.is_mock` before the model was loaded.
+
+- **Proper Streamlit Execution**: Always use `streamlit run app.py` instead of `python app.py` to run Streamlit applications. The latter doesn't properly initialize the session state and other Streamlit features.
+
+## Model Loading and Execution
+
+- **Model Initialization Sequencing**: Initialize the model before attempting to access its properties or methods. In our app, we moved model loading to the beginning of the main function.
+
+- **API vs Local Model Tradeoffs**: Using the DeepInfra API with Llama-3.2-90B-Vision is faster to load and doesn't require a GPU, but may have different response characteristics compared to local LLaVA execution.
+
+- **Error Handling for Model Loading**: Always include comprehensive error handling around model initialization and API calls to provide meaningful fallback behavior.
+
+## UI/UX Considerations
+
+- **Conditional UI Elements**: When displaying UI elements conditionally based on system capabilities (like GPU availability), ensure there are appropriate fallbacks for all scenarios.
+
+- **Proper Status Indication**: Clearly indicate to users which model is being used and whether it's a mock implementation or a real model.
+
+## System Dependency Management
+
+- **GPU Detection**: Always check for GPU availability before attempting to load GPU-dependent models. We implemented a helper function `check_gpu_availability()` to do this reliably.
+
+- **Null Checks**: Add null checks before accessing properties of objects that might not be initialized, especially when dealing with conditional loading.
+
+## Lessons for Future Projects
+
+1. Start with API-based models when possible for easier deployment and less dependency on user hardware.
+2. Always build with fallback mechanisms in mind.
+3. Consider creating separate classes for different model implementations rather than conditional logic within a single class.
+4. Use session state for maintaining application state, but be careful about initialization order.
+5. Maintain strict consistency in data field names across all components, especially when implementing alternative APIs for the same functionality. 

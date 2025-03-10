@@ -11,17 +11,22 @@ import torch
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-# Import the model inference
-from model.inference import get_model
+# We no longer need to import the model directly
+# from model.inference import get_model
 
-# Get the model instance
-model = get_model()
+# No longer needed - we'll use the model from session state
+# model = get_model()
 
 def analyze_gender_demographics(image):
     """
-    Analyze gender demographics using the LLaVA model.
-    Uses the actual model if CUDA is available, otherwise uses mock data.
+    Analyze gender demographics using the selected model.
+    Uses the actual model if available, otherwise uses mock data.
     """
+    # Check if model is in session state
+    if 'model' not in st.session_state or st.session_state.model is None:
+        st.error("Model not loaded. Please return to the main page.")
+        return None
+    
     # Show a progress bar to indicate processing
     progress_bar = st.progress(0)
     for i in range(100):
@@ -29,7 +34,7 @@ def analyze_gender_demographics(image):
         progress_bar.progress(i + 1)
     
     # Use the model to analyze the image
-    return model.analyze_gender_demographics(image)
+    return st.session_state.model.analyze_gender_demographics(image)
 
 def show():
     """Display the Gender Demographics Analysis page."""

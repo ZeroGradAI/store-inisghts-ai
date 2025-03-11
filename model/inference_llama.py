@@ -226,7 +226,7 @@ class APIModelInference:
             # STEP 1: Use vision model to analyze the image
             vision_prompt = """
 
-                            1. How many men and women customers do you see in the image. Respond something like "I see 10 men and 15 women customers in the image."
+                            1. How many men and women customers do you see in the image. Analyze well and count properly from left to right before responding. Respond something like "I see 1 men and 2 women customers in the image."
                             2. Identify what products or store sections these customers appear to be browsing or interested in. Respond something like "They appear to be interested in the electronics, clothing, and home goods sections."
                             3. Provide general insights about customer shopping patterns that might be useful for retail management
 

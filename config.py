@@ -40,8 +40,7 @@ MAX_TOKENS = int(os.getenv('MAX_TOKENS', 10000))
 DEEPINFRA_API_URL = os.getenv('DEEPINFRA_API_URL', "https://api.deepinfra.com/v1/openai")
 
 # Application Settings
-DEFAULT_MODEL = os.getenv('DEFAULT_MODEL', 'llama')  # 'phi', 'llama', or 'llava'
-USE_SMALL_MODEL = os.getenv('USE_SMALL_MODEL', 'false').lower() == 'true'
+DEFAULT_MODEL = os.getenv('DEFAULT_MODEL', 'llama')  # 'phi', 'llama', or 'llama-90b'
 
 # Deployment Settings
 PORT = int(os.getenv('PORT', 8501))

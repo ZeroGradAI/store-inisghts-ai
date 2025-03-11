@@ -6,10 +6,10 @@ An intelligent assistant for retail store management that uses vision models to 
 
 - **Gender Demographics Analysis**: Analyze the gender distribution of customers in the store.
 - **Queue Management Analysis**: Get insights on checkout counter efficiency and identify overcrowded areas.
-- **Model Selection**: Choose between three powerful vision AI models:
-  - **Microsoft Phi-4-Multimodal** (via DeepInfra API): Default option - reliable and cost-effective
-  - **Llama-3.2-90B-Vision** (via DeepInfra API): Alternative API-based model
-  - **LLaVA-1.5-7B**: Local vision-language model (requires GPU)
+- **Model Selection**: Choose between three powerful vision AI models via DeepInfra API:
+  - **Llama-3.2-11B-Vision-Instruct**: Default option - reliable and cost-effective
+  - **Llama-3.2-90B-Vision-Instruct**: More powerful but potentially slower
+  - **Microsoft Phi-4-Multimodal**: Alternative model with different capabilities
 
 ## Setup
 
@@ -17,8 +17,7 @@ An intelligent assistant for retail store management that uses vision models to 
 
 - Python 3.8 or later
 - [Conda](https://docs.conda.io/en/latest/) (recommended for environment management)
-- GPU with CUDA support (optional, for LLaVA model)
-- DeepInfra API key (for API-based models)
+- DeepInfra API key
 
 ### Environment Variables
 
@@ -31,11 +30,11 @@ DEEPINFRA_API_KEY=your_api_key_here
 You can also customize other settings:
 
 ```
-LLAMA_VISION_MODEL_ID=meta-llama/Llama-3.2-90B-Vision-Instruct
+LLAMA_VISION_MODEL_ID=meta-llama/Llama-3.2-11B-Vision-Instruct
+LLAMA_VISION_MODEL_ID_90B=meta-llama/Llama-3.2-90B-Vision-Instruct
 PHI_VISION_MODEL_ID=microsoft/Phi-4-multimodal-instruct
 TEXT_MODEL_ID=meta-llama/Meta-Llama-3.1-8B-Instruct
-DEFAULT_MODEL=phi
-USE_SMALL_MODEL=false
+DEFAULT_MODEL=llama
 ```
 
 ### Installation
@@ -67,9 +66,9 @@ USE_SMALL_MODEL=false
 2. Access the app in your browser at http://localhost:8501
 
 3. Choose your preferred model in the sidebar:
-   - **Microsoft Phi-4** (default): Uses DeepInfra's Phi-4-multimodal-instruct model via API
-   - **Llama-3.2**: Uses DeepInfra's Llama-3.2-90B-Vision-Instruct model via API
-   - **LLaVA-1.5**: Uses local LLaVA-1.5-7B model (requires GPU)
+   - **Llama-3.2-11B** (default): Uses DeepInfra's Llama-3.2-11B-Vision-Instruct model
+   - **Llama-3.2-90B**: Uses DeepInfra's Llama-3.2-90B-Vision-Instruct model
+   - **Microsoft Phi-4**: Uses DeepInfra's Phi-4-multimodal-instruct model
 
 4. Upload images of your store to get real-time insights
 
@@ -77,8 +76,7 @@ USE_SMALL_MODEL=false
 
 - `app/app.py`: Main Streamlit application
 - `app/pages/`: Individual pages for different analyses
-- `model/inference.py`: LLaVA model inference
-- `model/inference_llama.py`: API-based model inference (Phi and Llama)
+- `model/inference_llama.py`: API-based model inference for all models
 - `samples/`: Sample images for testing
 - `config.py`: Centralized configuration 
 
@@ -92,9 +90,7 @@ This application can be deployed to cloud platforms like Render and Vercel. For 
 
 ## Notes
 
-- If your system doesn't have a GPU, the application will automatically use the API-based models only.
-- The Microsoft Phi-4 model is set as default because it's more reliable and cost-effective.
-- For the best experience with the LLaVA model, a GPU with at least 8GB of VRAM is recommended.
+- The Llama-3.2-11B model is set as default because it's reliable and cost-effective.
 - When deploying, make sure to set the DEEPINFRA_API_KEY environment variable.
 
 ## License

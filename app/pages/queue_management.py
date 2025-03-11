@@ -6,7 +6,6 @@ import plotly.express as px
 import plotly.graph_objects as go
 import sys
 import time
-import torch
 import logging
 
 # Configure logging

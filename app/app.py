@@ -10,7 +10,6 @@ import sys
 import time
 import logging
 import argparse
-import torch
 
 # Add the app directory to the path to import modules
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -26,71 +25,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger("StoreInsightsApp")
 
-# Fix for torch watcher error in Streamlit
-try:
-    # Disable Streamlit's file watcher for torch to avoid __path__._path errors
-    import streamlit.watcher.path_watcher as pw
-    
-    orig_is_watchable = pw.is_watchable
-    def patched_is_watchable(path_string):
-        if 'torch' in path_string:
-            return False
-        return orig_is_watchable(path_string)
-    
-    pw.is_watchable = patched_is_watchable
-    
-    # Now import torch safely
-    import torch
-    has_gpu = torch.cuda.is_available()
-    logger.info(f"CUDA available: {has_gpu}")
-except Exception as e:
-    logger.warning(f"Error handling torch imports: {str(e)}")
-    has_gpu = False
-    logger.info("CUDA not available (error during import). Will use Llama API only.")
-
 # Import the model inference
-from model.inference import get_model as get_llava_model
 from model.inference_llama import get_api_model
-
-# Helper function to check GPU availability
-def check_gpu_availability():
-    """Check if GPU is available and return system GPU info."""
-    gpu_info = {}
-    
-    try:
-        has_gpu = torch.cuda.is_available()
-        
-        if has_gpu:
-            gpu_info['device_count'] = torch.cuda.device_count()
-            gpu_info['current_device'] = torch.cuda.current_device()
-            gpu_info['device_name'] = torch.cuda.get_device_name(0)
-            logger.info(f"CUDA is available. Detected {gpu_info['device_count']} GPU(s).")
-            logger.info(f"Current CUDA device: {gpu_info['current_device']}")
-            logger.info(f"CUDA device name: {gpu_info['device_name']}")
-        else:
-            logger.info("CUDA is not available. Will use API-based models only.")
-    except Exception as e:
-        logger.warning(f"Error checking GPU availability: {str(e)}")
-        has_gpu = False
-        logger.info("CUDA availability check failed. Will use API-based models only.")
-    
-    return has_gpu, gpu_info
-
-# Check if GPU is available for Llava
-has_gpu, gpu_info = check_gpu_availability()
-
-# Check if we should use a smaller model - use configuration setting if available
-parser = argparse.ArgumentParser(description='Store Insights AI')
-parser.add_argument('--small-model', action='store_true', help='Use a smaller model to avoid memory issues')
-args, unknown = parser.parse_known_args()
-use_small_model = args.small_model or config.USE_SMALL_MODEL
 
 # Set page configuration - must be the first Streamlit command
 st.set_page_config(
     page_title="Store Insights AI",
-    page_icon="🏪",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
+    page_icon="🏪"
 )
 
 # Hide the default Streamlit menu and footer
@@ -248,8 +191,6 @@ def main():
                 st.session_state.model = get_api_model(model_type='llama')
             elif st.session_state.selected_model == 'llama-90b':
                 st.session_state.model = get_api_model(model_type='llama-90b')
-            else:  # llava
-                st.session_state.model = get_llava_model(use_small_model=use_small_model)
             
             # Log model info after it's loaded
             logger.info(f"Model loaded: {st.session_state.selected_model}")
@@ -283,67 +224,40 @@ def main():
             st.markdown("<div class='model-status model-status-mock'>Using Simulated Data</div>", unsafe_allow_html=True)
             st.markdown("""
             <div style="margin-top: 10px; font-size: 0.8em;">
-            The model is using simulated data because no GPU is available or an error occurred during model loading.
+            The model is using simulated data because an error occurred during model loading.
             </div>
             """, unsafe_allow_html=True)
         elif st.session_state.model is not None:
             status_color = "#28a745" if not st.session_state.model.is_mock else "#dc3545"
             
-            # Get model name based on selected model
-            if hasattr(st.session_state.model, 'get_model_name'):
-                model_name = st.session_state.model.get_model_name()
-            else:
-                model_name = "LLaVA-1.5-7B"
+            # Get the model name based on the selected model
+            if st.session_state.selected_model == 'phi':
+                model_name = "Phi-4-multimodal-instruct"
+                model_description = "Microsoft Phi-4"
+            elif st.session_state.selected_model == 'llama':
+                model_name = "Llama-3.2-11B-Vision-Instruct"
+                model_description = "Meta Llama-3.2-11B"
+            elif st.session_state.selected_model == 'llama-90b':
+                model_name = "Llama-3.2-90B-Vision-Instruct"
+                model_description = "Meta Llama-3.2-90B"
             
+            st.markdown(f"<div class='model-status' style='background-color: {status_color};'>Model Ready: {model_name}</div>", unsafe_allow_html=True)
+            
+            # Add model description
             st.markdown(f"""
-            <div style="background-color: {status_color}; color: white; padding: 10px; border-radius: 5px; text-align: center; margin-bottom: 10px;">
-                <strong>Model Active:</strong> {model_name}
+            <div style="margin-top: 10px; font-size: 0.8em;">
+            Using DeepInfra's {model_description} API for vision analysis.
             </div>
             """, unsafe_allow_html=True)
-            
-            # Provide info based on model type
-            if st.session_state.selected_model in ['phi', 'llama', 'llama-90b']:
-                if st.session_state.selected_model == 'phi':
-                    model_description = "Microsoft Phi-4"
-                elif st.session_state.selected_model == 'llama':
-                    model_description = "Llama-3.2-11B-Vision"
-                else:  # llama-90b
-                    model_description = "Llama-3.2-90B-Vision"
-                    
-                st.markdown(f"""
-                <div style="margin-top: 10px; font-size: 0.8em;">
-                Using DeepInfra's {model_description} API for vision analysis - faster and doesn't require GPU.
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.markdown("""
-                <div style="margin-top: 10px; font-size: 0.8em;">
-                Using local LLaVA model for vision analysis - may be slower but runs locally.
-                </div>
-                """, unsafe_allow_html=True)
-        else:
-            st.info("Model loading in progress...")
         
-        # Add model selection at the top of the sidebar
-        st.markdown("### Model Selection")
+        # Define available models
+        model_options = ['llama', 'llama-90b', 'phi']
+        model_descriptions = {
+            'llama': 'meta-llama/Llama-3.2-11B-Vision-Instruct (Default)',
+            'llama-90b': 'meta-llama/Llama-3.2-90B-Vision-Instruct',
+            'phi': 'microsoft/Phi-4-multimodal-instruct'
+        }
         
-        # Define available models based on GPU availability
-        if has_gpu:
-            model_options = ['llama', 'llama-90b', 'phi', 'llava']
-            model_descriptions = {
-                'llama': 'meta-llama/Llama-3.2-11B-Vision-Instruct (Default)',
-                'llama-90b': 'meta-llama/Llama-3.2-90B-Vision-Instruct',
-                'phi': 'microsoft/Phi-4-multimodal-instruct',
-                'llava': 'LLaVA-1.5 (Local - Requires GPU)'
-            }
-        else:
-            model_options = ['llama', 'llama-90b', 'phi']
-            model_descriptions = {
-                'llama': 'meta-llama/Llama-3.2-11B-Vision-Instruct (Default)',
-                'llama-90b': 'meta-llama/Llama-3.2-90B-Vision-Instruct',
-                'phi': 'microsoft/Phi-4-multimodal-instruct'
-            }
-            
         # Format the options with descriptions
         formatted_options = [f"{model_descriptions[opt]}" for opt in model_options]
         
@@ -372,10 +286,6 @@ def main():
             st.session_state.selected_model = selected_model
             st.session_state.model = None  # Reset the model so it will be reloaded
             st.rerun()  # Rerun the app to load the new model
-        
-        # If GPU is not available, show info message
-        if not has_gpu and 'llava' in model_descriptions:
-            st.warning("LLaVA model requires GPU which is not available on this system.")
         
         st.markdown("---")
         
@@ -406,8 +316,6 @@ def main():
 
 if __name__ == "__main__":
     logger.info("Starting Store Insights AI application")
-    if torch.cuda.is_available():
-        logger.info(f"CUDA device: {torch.cuda.get_device_name(0)}")
     
     main() 
 

@@ -1,11 +1,4 @@
 streamlit
-tokenizers
-accelerate
-torch
-torchvision
-transformers==4.45.2
-timm
-bitsandbytes
 pillow
 numpy
 tqdm

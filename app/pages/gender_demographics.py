@@ -5,7 +5,6 @@ import numpy as np
 import plotly.express as px
 import sys
 import time
-import torch
 
 # Add the app directory to the path to import modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

@@ -13,7 +13,6 @@ import argparse
 def main():
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Launch Store Insights AI')
-    parser.add_argument('--small-model', action='store_true', help='Use a smaller model to avoid memory issues')
     args = parser.parse_args()
     
     print("Starting Store Insights AI in Lightning Studios...")
@@ -42,12 +41,6 @@ def main():
         "--server.enableCORS=false",
         "--server.enableXsrfProtection=false"
     ]
-    
-    # Add the small-model flag if requested
-    if args.small_model:
-        cmd.append("--")
-        cmd.append("--small-model")
-        print("Using smaller model to avoid memory issues")
     
     print(f"Running command: {' '.join(cmd)}")
     

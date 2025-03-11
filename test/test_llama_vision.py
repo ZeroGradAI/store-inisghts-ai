@@ -2,12 +2,18 @@
 from openai import OpenAI
 from PIL import Image
 import base64
+import os
+from dotenv import load_dotenv
+
+# Create an OpenAI client with your deepinfra token and endpoint
+
+DEEPINFRA_API_KEY = os.getenv('DEEPINFRA_API_KEY')
+
 # Create an OpenAI client with your deepinfra token and endpoint
 openai = OpenAI(
-    api_key="HwFKgryu2LwqFv6lV1ZlIixWh67NJgvH",
+    api_key=DEEPINFRA_API_KEY,
     base_url="https://api.deepinfra.com/v1/openai",
 )
-
 
 # Function to encode the image
 def encode_image(image_path):

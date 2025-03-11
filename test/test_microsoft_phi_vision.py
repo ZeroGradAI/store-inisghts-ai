@@ -5,10 +5,13 @@ from PIL import Image
 import base64
 import sys
 import os
+from dotenv import load_dotenv
 
 # Add the app directory to the path to import modules
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+DEEPINFRA_API_KEY = os.getenv('DEEPINFRA_API_KEY')
 
 # Create an OpenAI client with your deepinfra token and endpoint
 openai = OpenAI(

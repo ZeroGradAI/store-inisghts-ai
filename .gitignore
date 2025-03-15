@@ -101,3 +101,5 @@ var/
 *.egg-info/
 .installed.cfg
 *.egg 
+*.mp4
+*.avi

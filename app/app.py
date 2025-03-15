@@ -1,5 +1,14 @@
 # streamlit run --server.port 8501 store-inisghts-ai/app/app.py
 import streamlit as st
+
+# Set page configuration - must be the first Streamlit command
+st.set_page_config(
+    page_title="Store Insights AI",
+    layout="wide",
+    initial_sidebar_state="expanded",
+    page_icon="🏪"
+)
+
 import os
 import pandas as pd
 import numpy as np
@@ -15,8 +24,9 @@ import argparse
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Import configuration
+# Import configuration and utilities
 import config
+from utils import update_analysis_status
 
 # Configure logging
 logging.basicConfig(
@@ -27,14 +37,6 @@ logger = logging.getLogger("StoreInsightsApp")
 
 # Import the model inference
 from model.inference_llama import get_api_model
-
-# Set page configuration - must be the first Streamlit command
-st.set_page_config(
-    page_title="Store Insights AI",
-    layout="wide",
-    initial_sidebar_state="expanded",
-    page_icon="🏪"
-)
 
 # Hide the default Streamlit menu and footer
 hide_streamlit_style = """
@@ -55,6 +57,10 @@ if 'selected_model' not in st.session_state:
 if 'model' not in st.session_state:
     st.session_state.model = None
 
+# Initialize temperature in session state
+if 'temperature' not in st.session_state:
+    st.session_state.temperature = 0.1  # Default to low temperature for more deterministic outputs
+
 # Initialize session state for storing analysis results
 if "gender_demographics_results" not in st.session_state:
     st.session_state.gender_demographics_results = None
@@ -65,6 +71,13 @@ if "queue_management_results" not in st.session_state:
 # Initialize current page in session state if not present
 if "current_page" not in st.session_state:
     st.session_state.current_page = "dashboard"
+
+# Add caching for analysis results
+if 'analysis_in_progress' not in st.session_state:
+    st.session_state.analysis_in_progress = False
+
+if 'last_analysis_time' not in st.session_state:
+    st.session_state.last_analysis_time = None
 
 def display_metrics():
     """Display metrics from both analysis modules if available."""
@@ -89,37 +102,88 @@ def display_metrics():
         width: 100%;
         text-align: center;
     }
+    .analysis-status {
+        padding: 5px 10px;
+        border-radius: 5px;
+        margin-bottom: 10px;
+        font-size: 0.9em;
+    }
+    .analysis-in-progress {
+        background-color: #fff3cd;
+        color: #856404;
+        border: 1px solid #ffeeba;
+    }
+    .analysis-complete {
+        background-color: #d4edda;
+        color: #155724;
+        border: 1px solid #c3e6cb;
+    }
     </style>
     """, unsafe_allow_html=True)
     
-    # Create columns for metrics
+    # Show analysis status if needed
+    if st.session_state.analysis_in_progress:
+        st.markdown(
+            '<div class="analysis-status analysis-in-progress">⏳ Analysis in progress...</div>',
+            unsafe_allow_html=True
+        )
+    elif st.session_state.last_analysis_time:
+        st.markdown(
+            f'<div class="analysis-status analysis-complete">✅ Last analysis completed at {st.session_state.last_analysis_time}</div>',
+            unsafe_allow_html=True
+        )
+    
+    # Create columns for metrics with placeholder containers
     col1, col2, col3, col4 = st.columns(4)
     
     # Gender Demographics Metrics
     if st.session_state.gender_demographics_results:
         results = st.session_state.gender_demographics_results
         with col1:
-            st.metric("👨 Men", results["men_count"])
+            st.metric("👨 Men", results["men_count"], delta=None)
         with col2:
-            st.metric("👩 Women", results["women_count"])
+            st.metric("👩 Women", results["women_count"], delta=None)
     else:
         with col1:
-            st.metric("👨 Men", "-")
+            st.metric("👨 Men", "-", delta=None)
         with col2:
-            st.metric("👩 Women", "-")
+            st.metric("👩 Women", "-", delta=None)
     
     # Queue Management Metrics
     if st.session_state.queue_management_results:
         results = st.session_state.queue_management_results
         with col3:
-            st.metric("🔢 Total Counters", results["total_counters"])
+            st.metric("🔢 Total Counters", results["total_counters"], delta=None)
         with col4:
-            st.metric("✅ Open Counters", results["open_counters"])
+            st.metric("✅ Open Counters", results["open_counters"], delta=None)
     else:
         with col3:
-            st.metric("🔢 Total Counters", "-")
+            st.metric("🔢 Total Counters", "-", delta=None)
         with col4:
-            st.metric("✅ Open Counters", "-")
+            st.metric("✅ Open Counters", "-", delta=None)
+
+@st.cache_data(ttl=300)  # Cache charts for 5 minutes
+def create_gender_chart(men_count, women_count):
+    """Create and cache the gender distribution chart."""
+    fig = px.pie(
+        names=["Men", "Women"],
+        values=[men_count, women_count],
+        title="Customer Gender Distribution",
+        color_discrete_sequence=["#3366CC", "#FF6B6B"]
+    )
+    return fig
+
+@st.cache_data(ttl=300)  # Cache charts for 5 minutes
+def create_queue_chart(open_counters, closed_counters):
+    """Create and cache the queue management chart."""
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=["Open", "Closed"],
+        y=[open_counters, closed_counters],
+        marker_color=["#4CAF50", "#F44336"]
+    ))
+    fig.update_layout(title_text="Counter Status")
+    return fig
 
 def display_insights():
     """Display insights from both analysis modules if available."""
@@ -133,17 +197,12 @@ def display_insights():
         if st.session_state.gender_demographics_results:
             results = st.session_state.gender_demographics_results
             
-            # Display chart
-            fig = px.pie(
-                names=["Men", "Women"],
-                values=[results["men_count"], results["women_count"]],
-                title="Customer Gender Distribution",
-                color_discrete_sequence=["#3366CC", "#FF6B6B"]
-            )
-            st.plotly_chart(fig)
+            # Use cached chart
+            fig = create_gender_chart(results["men_count"], results["women_count"])
+            st.plotly_chart(fig, use_container_width=True)
             
-            # Display insights
-            st.markdown(f"**AI Insights:** {results['insights']}")
+            with st.expander("View AI Insights", expanded=True):
+                st.markdown(f"{results['insights']}")
         else:
             st.info("No gender demographics data available. Run an analysis from the Gender Demographics module.")
     
@@ -153,18 +212,16 @@ def display_insights():
         if st.session_state.queue_management_results:
             results = st.session_state.queue_management_results
             
-            # Display chart
-            fig = go.Figure()
-            fig.add_trace(go.Bar(
-                x=["Open", "Closed"],
-                y=[results["open_counters"], results["closed_counters"]],
-                marker_color=["#4CAF50", "#F44336"]
-            ))
-            fig.update_layout(title_text="Counter Status")
-            st.plotly_chart(fig)
+            # Use cached chart
+            fig = create_queue_chart(results["open_counters"], results["closed_counters"])
+            st.plotly_chart(fig, use_container_width=True)
             
-            # Display insights
-            st.markdown(f"**AI Recommendations:** {results['recommendations']}")
+            with st.expander("View AI Recommendations", expanded=True):
+                if isinstance(results['recommendations'], list):
+                    for rec in results['recommendations']:
+                        st.markdown(f"• {rec}")
+                else:
+                    st.markdown(f"{results['recommendations']}")
         else:
             st.info("No queue management data available. Run an analysis from the Queue Management module.")
 
@@ -186,15 +243,16 @@ def main():
     if st.session_state.model is None:
         with st.spinner(f"Loading {st.session_state.selected_model.upper()} model..."):
             if st.session_state.selected_model == 'phi':
-                st.session_state.model = get_api_model(model_type='phi')
+                st.session_state.model = get_api_model(model_type='phi', temperature=st.session_state.temperature)
             elif st.session_state.selected_model == 'llama':
-                st.session_state.model = get_api_model(model_type='llama')
+                st.session_state.model = get_api_model(model_type='llama', temperature=st.session_state.temperature)
             elif st.session_state.selected_model == 'llama-90b':
-                st.session_state.model = get_api_model(model_type='llama-90b')
+                st.session_state.model = get_api_model(model_type='llama-90b', temperature=st.session_state.temperature)
             
             # Log model info after it's loaded
             logger.info(f"Model loaded: {st.session_state.selected_model}")
             logger.info(f"Using mock data: {st.session_state.model.is_mock}")
+            logger.info(f"Temperature: {st.session_state.temperature}")
     
     # Clean sidebar with styled navigation buttons
     with st.sidebar:
@@ -214,6 +272,11 @@ def main():
         }
         div.stButton > button:hover {
             background-color: #4A4D5E;
+        }
+        .temperature-info {
+            font-size: 0.8em;
+            color: #666;
+            margin-top: 5px;
         }
         </style>
         """, unsafe_allow_html=True)
@@ -287,6 +350,30 @@ def main():
             st.session_state.model = None  # Reset the model so it will be reloaded
             st.rerun()  # Rerun the app to load the new model
         
+        # Add temperature control after model selection
+        st.markdown("### Model Settings")
+        new_temperature = st.slider(
+            "Temperature",
+            min_value=0.0,
+            max_value=1.0,
+            value=st.session_state.temperature,
+            step=0.1,
+            help="Controls randomness in model outputs. Lower values (closer to 0) make the output more deterministic and focused, while higher values make it more creative and varied."
+        )
+        
+        st.markdown("""
+        <div class="temperature-info">
+        🎯 Lower temperature (0.0-0.3): More deterministic, better for analysis<br>
+        🎨 Higher temperature (0.7-1.0): More creative, varied outputs
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # If temperature changed, update session state and reload model
+        if new_temperature != st.session_state.temperature:
+            st.session_state.temperature = new_temperature
+            st.session_state.model = None  # Reset the model so it will be reloaded
+            st.rerun()  # Rerun the app to load the new model
+        
         st.markdown("---")
         
         # Navigation buttons
@@ -313,6 +400,12 @@ def main():
     elif st.session_state.current_page == "queue_management":
         from pages import queue_management
         queue_management.show()
+
+def update_analysis_status(in_progress=False):
+    """Update the analysis status in session state."""
+    st.session_state.analysis_in_progress = in_progress
+    if not in_progress:
+        st.session_state.last_analysis_time = time.strftime("%I:%M:%S %p")
 
 if __name__ == "__main__":
     logger.info("Starting Store Insights AI application")

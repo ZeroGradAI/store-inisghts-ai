@@ -22,15 +22,17 @@ logger = logging.getLogger(__name__)
 class APIModelInference:
     """Class for model inference operations using vision models via DeepInfra API."""
     
-    def __init__(self, model_type='phi'):
+    def __init__(self, model_type='phi', temperature=0.1):
         """
         Initialize the model inference class.
         
         Args:
             model_type: Type of vision model to use ('phi', 'llama', or 'llama-90b')
+            temperature: Controls randomness in model outputs (0.0 to 1.0, lower is more deterministic)
         """
         self.is_mock = False
         self.model_type = model_type.lower()
+        self.temperature = max(0.0, min(1.0, float(temperature)))  # Clamp between 0 and 1
         
         # Set the vision model based on the model_type
         if self.model_type == 'phi':
@@ -159,6 +161,7 @@ class APIModelInference:
                     }
                 ],
                 max_tokens=self.max_tokens,
+                temperature=self.temperature,
             )
             
             # Extract the response
@@ -194,6 +197,7 @@ class APIModelInference:
                     }
                 ],
                 max_tokens=2000,
+                temperature=self.temperature,
             )
             
             # Extract the response
@@ -862,14 +866,15 @@ Return ONLY the JSON object, nothing else. If the analysis doesn't provide certa
             return "Unknown Model"
 
 # Rename the get_model function to be more descriptive of what it's getting
-def get_api_model(model_type=config.DEFAULT_MODEL):
+def get_api_model(model_type=config.DEFAULT_MODEL, temperature=0.1):
     """
     Get an instance of the APIModelInference class.
     
     Args:
         model_type: Type of vision model to use ('phi' or 'llama')
+        temperature: Controls randomness in model outputs (0.0 to 1.0, lower is more deterministic)
         
     Returns:
         An instance of the APIModelInference class
     """
-    return APIModelInference(model_type=model_type) 
+    return APIModelInference(model_type=model_type, temperature=temperature) 
